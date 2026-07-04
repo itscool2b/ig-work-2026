@@ -6,16 +6,16 @@
 \pdfpageheight=11in
 
 \usepackage{ijcai26}
-% Times font, robust across engines. pdfLaTeX (the usual venue build server) uses
-% the portable times package. XeLaTeX/LuaLaTeX use the system Times New Roman,
-% which requires that font to be installed (present on macOS; on a Linux/CI XeTeX
-% build either install it or set the main font to a bundled TeX Gyre Termes by path).
+% Times font, portable across engines. pdfLaTeX (the usual venue build server)
+% uses the standard times package. XeLaTeX/LuaLaTeX load TeX Gyre Termes, a
+% Times-metric-compatible font shipped with every TeX Live and Tectonic install,
+% by file through kpathsea, so the build needs no system-installed font.
 \usepackage{iftex}
 \ifPDFTeX
   \usepackage{times}
 \else
   \usepackage{fontspec}
-  \setmainfont{Times New Roman}
+  \setmainfont{texgyretermes}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
 \fi
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
@@ -635,7 +635,7 @@ Even so, the direction of the effect admits no weak-policy reading, since the vi
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/fig_1b_vs_170m.png}
-\caption{Faithfulness AUCs for RDT-170M and RDT-1B on PickCube, with populations as in Table~\ref{tab:faithfulness}. The drawn reference lines are the vision bars (insertion 0.60, deletion 0.40). The language bars are 0.55 and 0.45. The plotted column heights are the pooled three-seed 1B values. The fine-tuned 1B moves all four AUCs in the faithful direction and passes both vision bars and the language deletion bar at every seed, while its deletion log-density magnitude shrinks (Table~\ref{tab:faithfulness}). Language insertion is the one seed-sensitive case, with a pooled value of 0.541 just under its 0.55 bar. The change that carries the argument, the vision AUCs improving while the deletion magnitude falls, points to the per-entry quadratic log-density readout rather than policy weakness as the cause of small $\Delta\log\pi$.}
+\caption{Faithfulness AUCs for RDT-170M and RDT-1B on PickCube, with populations as in Table~\ref{tab:faithfulness}. The drawn reference lines are the vision bars (insertion 0.60, deletion 0.40). The language bars are 0.55 and 0.45. The plotted RDT-1B column heights are the pooled three-seed values. The fine-tuned 1B moves all four AUCs in the faithful direction and passes both vision bars and the language deletion bar at every seed, while its deletion log-density magnitude shrinks (Table~\ref{tab:faithfulness}). Language insertion is the one seed-sensitive case, with a pooled value of 0.541 just under its 0.55 bar. The change that carries the argument, the vision AUCs improving while the deletion magnitude falls, points to the per-entry quadratic log-density readout rather than policy weakness as the cause of small $\Delta\log\pi$.}
 \label{fig:scale}
 \end{figure}
 

@@ -63,4 +63,4 @@ run_disp StackCube-v1 1b   data/m5_metrics_StackCube-v1_1b_seed42.jsonl "$LIMIT_
 run_disp StackCube-v1 170m data/metrics_StackCube-v1_170m_seed42.jsonl  "$LIMIT_170"
 
 echo "Displacement runs complete. Regenerate the figure and CSV with:"
-echo "  python3 make_month5_figs.py"
+echo "  .venv/bin/python make_month5_figs.py"

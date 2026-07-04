@@ -36,6 +36,7 @@ notes/
 report/
 archive/
 .claude/
+.playwright-mcp/
 CLAUDE.md
 AUDIT_REPORT.md
 paper/AUDIT_REPORT.md

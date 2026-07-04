@@ -154,6 +154,23 @@ def fig_c1():
     plt.close(fig)
 
 
+# Colorblind-safe (Okabe-Ito) colors paired with distinct line styles and markers,
+# so the four scale/task series stay separable in grayscale and for CVD readers
+# rather than relying on hue alone.
+_DISP_STYLE = {
+    ("PickCube-v1", "170m"):  {"color": "#0072B2", "ls": "--", "marker": "o"},
+    ("PickCube-v1", "1b"):    {"color": "#D55E00", "ls": "-",  "marker": "s"},
+    ("StackCube-v1", "170m"): {"color": "#009E73", "ls": ":",  "marker": "^"},
+    ("StackCube-v1", "1b"):   {"color": "#CC79A7", "ls": "-.", "marker": "D"},
+}
+_DISP_FALLBACK = [
+    {"color": "#0072B2", "ls": "--", "marker": "o"},
+    {"color": "#D55E00", "ls": "-",  "marker": "s"},
+    {"color": "#009E73", "ls": ":",  "marker": "^"},
+    {"color": "#CC79A7", "ls": "-.", "marker": "D"},
+]
+
+
 def fig_displacement():
     with open(os.path.join(REPO, "out", "figures_m5", "table_displacement.csv")) as f:
         rows = [r for r in csv.DictReader(f)]
@@ -172,8 +189,10 @@ def fig_displacement():
             los = [float(r["ci_lo"]) for r in sel]
             his = [float(r["ci_hi"]) for r in sel]
             label = f"{task.replace('-v1', '')} {model.replace('170m', '170M').replace('1b', '1B')}"
-            line, = ax.plot(xs, ys, marker="o", markersize=4, color=f"C{idx}", label=label)
-            ax.fill_between(xs, los, his, alpha=0.15, color=line.get_color())
+            st = _DISP_STYLE.get((task, model), _DISP_FALLBACK[idx % len(_DISP_FALLBACK)])
+            line, = ax.plot(xs, ys, marker=st["marker"], markersize=4,
+                            linestyle=st["ls"], color=st["color"], label=label)
+            ax.fill_between(xs, los, his, alpha=0.15, color=st["color"])
         ax.set_xscale("log")
         ax.set_xticks([1, 2, 3, 5, 10, 20])
         ax.set_xticklabels(["1", "2", "3", "5", "10", "20"], fontsize=9)

@@ -75,6 +75,22 @@ def groups_present(rows):
     return sorted(keys, key=lambda tm: (tm[0] or "", tm[1] or ""))
 
 
+# Colorblind-safe (Okabe-Ito) colors paired with distinct line styles and markers,
+# so the scale/task series stay separable in grayscale and for CVD readers.
+_DISP_STYLE = {
+    ("PickCube-v1", "170m"):  {"color": "#0072B2", "ls": "--", "marker": "o"},
+    ("PickCube-v1", "1b"):    {"color": "#D55E00", "ls": "-",  "marker": "s"},
+    ("StackCube-v1", "170m"): {"color": "#009E73", "ls": ":",  "marker": "^"},
+    ("StackCube-v1", "1b"):   {"color": "#CC79A7", "ls": "-.", "marker": "D"},
+}
+_DISP_FALLBACK = [
+    {"color": "#0072B2", "ls": "--", "marker": "o"},
+    {"color": "#D55E00", "ls": "-",  "marker": "s"},
+    {"color": "#009E73", "ls": ":",  "marker": "^"},
+    {"color": "#CC79A7", "ls": "-.", "marker": "D"},
+]
+
+
 def fig_displacement_vs_T(modality, B_n, seed):
     rows_all = load_displacement(modality)
     if not rows_all:
@@ -86,7 +102,7 @@ def fig_displacement_vs_T(modality, B_n, seed):
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
     for ax, field, ylab in [(axes[0], "l2_active", r"median $\|a_{pert}-a_{orig}\|_2$ (active dims)"),
                             (axes[1], "rel_active", "median relative displacement")]:
-        for (task, model) in series:
+        for si, (task, model) in enumerate(series):
             xs, ys, los, his = [], [], [], []
             for T in Ts:
                 sub = [r for r in rows_all
@@ -103,8 +119,10 @@ def fig_displacement_vs_T(modality, B_n, seed):
                                          n_rows=len(proj), solver_steps=T))
             if xs:
                 label = f"{task} {model}"
-                line, = ax.plot(xs, ys, marker="o", label=label)
-                ax.fill_between(xs, los, his, alpha=0.18, color=line.get_color())
+                st = _DISP_STYLE.get((task, model), _DISP_FALLBACK[si % len(_DISP_FALLBACK)])
+                line, = ax.plot(xs, ys, marker=st["marker"], linestyle=st["ls"],
+                                color=st["color"], label=label)
+                ax.fill_between(xs, los, his, alpha=0.18, color=st["color"])
         ax.set_xlabel("DPM-Solver++ steps T")
         ax.set_ylabel(ylab)
         ax.set_xscale("log")
@@ -130,7 +148,7 @@ def fig_displacement_vs_delfrac(modality, B_n, seed):
     series = groups_present(rows_all)
     ks = sorted(set().union(*[set(r.get("del_grid", [])) for r in rows_all]))
     fig, ax = plt.subplots(figsize=(5, 3.6))
-    for (task, model) in series:
+    for di, (task, model) in enumerate(series):
         xs, ys = [], []
         for k in ks:
             sub = [r for r in rows_all
@@ -142,7 +160,9 @@ def fig_displacement_vs_delfrac(modality, B_n, seed):
             if not np.isnan(point):
                 xs.append(k); ys.append(point)
         if xs:
-            ax.plot(xs, ys, marker="o", label=f"{task} {model}")
+            st = _DISP_STYLE.get((task, model), _DISP_FALLBACK[di % len(_DISP_FALLBACK)])
+            ax.plot(xs, ys, marker=st["marker"], linestyle=st["ls"], color=st["color"],
+                    label=f"{task} {model}")
     ax.set_xlabel("top-k deletion (%)")
     ax.set_ylabel(r"median $\|a_{pert}-a_{orig}\|_2$ (active dims)")
     ax.set_title(f"Displacement vs deletion fraction at T={T_FOR_DELFRAC}", fontsize=10)
