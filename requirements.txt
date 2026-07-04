@@ -3,7 +3,7 @@
 # Executed with Python 3.12 (notebooks record 3.12.13). CSV tables regenerate
 # byte-identically. Figure PNGs re-render with identical data, but byte-level
 # identity to the committed renders is matplotlib-version-sensitive (the
-# committed renders used matplotlib 3.9 and 3.10).
+# committed renders used matplotlib 3.11).
 numpy
 pandas
 matplotlib

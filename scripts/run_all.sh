@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-command reproduction:
-#   1. Full pass (per_step_ig, 4-5 tasks x 2 seeds x 50 eps @ m=64)
+#   1. Full pass (per_step_ig, 4 tasks x 2 seeds x 50 eps @ m=64)
 #   2. Faithfulness post-processing (B1 + B2)
 #   3. Sanity C1 + C2
 #   4. Overlay generation (qualitative artifacts)

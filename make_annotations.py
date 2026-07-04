@@ -1,5 +1,5 @@
 """
-Build out/annotations.csv (V2 annotation deliverable).
+Build out/annotations.csv (V2 annotation output).
 
 16 rows = 2 PickCube successes (1B authors' weights) + 2 PickCube failures (170M)
         + 4 failures × 3 other tasks (170M).

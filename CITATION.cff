@@ -6,6 +6,8 @@ authors:
     given-names: Arjun
 repository-code: "https://github.com/itscool2b/ig-work-2026"
 license: MIT
+version: 1.0.0
+date-released: "2026-07-03"
 preferred-citation:
   type: article
   title: "The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusion-Policy Vision-Language-Action Models"

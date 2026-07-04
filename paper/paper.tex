@@ -19,6 +19,7 @@
 \fi
 \usepackage{url}
 \usepackage[hidelinks]{hyperref}
+\hypersetup{pdftitle={The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusion-Policy Vision-Language-Action Models},pdfauthor={Arjun Bajpai, Sumit K. Jha, Vishal Pramanik, Brian Rodriguez}}
 \usepackage[utf8]{inputenc}
 \usepackage[small]{caption}
 \usepackage{graphicx}
@@ -67,12 +68,13 @@ It defines a deterministic Gaussian log-density target through a fixed-seed deno
 We evaluate on four tasks with two seeds, covering 1{,}341 signal-bearing decisions out of roughly 1{,}900 attributed policy calls.
 Median completeness error is 1.9 to 2.5\% on vision and language.
 Vision insertion and deletion area-under-curve (AUC) scores of 0.79 to 0.87 and 0.29 to 0.35 pass pre-specified faithfulness bars.
-Language AUCs miss most of their bars at 170M, where instructions tokenize to only 16 to 30 tokens, while on the fine-tuned RDT-1B language deletion improves to passing and language insertion is seed-sensitive, passing at two of three evaluation seeds.
+Language AUCs miss most of their bars at 170M, where instructions tokenize to only 16 to 30 tokens.
+On the fine-tuned RDT-1B, language deletion improves to passing and language insertion is seed-sensitive, passing at two of three evaluation seeds.
 We then report two structural findings about evaluating attribution on diffusion policies.
 First, the log-density change under deletion does not track policy competence.
 A fine-tuned RDT-1B improves its vision AUCs at every one of three evaluation seeds (pooled over all policy calls, vision insertion 0.940, deletion 0.288) while its vision deletion magnitude stays near $-$0.00015 nats.
 A direct measurement shows this is an artifact of the per-entry quadratic log-density readout, which maps a small action displacement to a near-zero nat value, and not of the action being held fixed by the denoiser.
-Ranking-based metrics, not magnitudes, are the right faithfulness tool.
+Ranking-based metrics, not magnitudes, are the right faithfulness tool for this setting.
 Second, model-randomization sanity correlations persist even under frozen-target and full-backbone randomization.
 This follows from the input-anchored form of IG, while input randomization remains discriminating and passes ($\rho \leq 0.17$ on vision).
 Finally, a raw $\ell_2$ attribution target restores a usable deletion magnitude of $-$1.23 at $k{=}5\%$ in action-space units, while the log-density target yields $-$0.0014 nats on the same population.
@@ -134,7 +136,8 @@ Walker et al.~\shortcite{walker2024idg} observed that gradients from saturation 
 For vision transformers, metric-driven attributions~\cite{walker2025metric} and information-flow decompositions~\cite{walker2025infoflow} improve patch-level explanations. Guided IG~\cite{kapishnikov2021guided} adapts the integration path to reduce pixel-level noise.
 Petsiuk et al.~\shortcite{petsiuk2018rise} introduced the insertion and deletion curves we adopt as ranking-based faithfulness metrics.
 The reliability of perturbation metrics is itself an active concern.
-Hooker et al.~\shortcite{hooker2019roar} evaluate attributions by retraining on ablated inputs, Rong et al.~\shortcite{rong2022road} show that deletion without retraining leaks information through the shape of the mask itself, and Tomsett et al.~\shortcite{tomsett2020sanity} find that common saliency metrics are themselves unreliable.
+Hooker et al.~\shortcite{hooker2019roar} evaluate attributions by retraining on ablated inputs.
+Rong et al.~\shortcite{rong2022road} show that deletion without retraining leaks information through the shape of the mask itself, and Tomsett et al.~\shortcite{tomsett2020sanity} find that common saliency metrics are themselves unreliable.
 Our structural findings add a diffusion-policy instance of that caution, where the readout convention rather than the ranking drives the magnitude verdict.
 Adebayo et al.~\shortcite{adebayo2018sanity} established model and data randomization as necessary sanity checks.
 They also observed that attribution methods carrying a multiplicative input term remain partially invariant to model randomization.
@@ -179,7 +182,7 @@ Given a differentiable function $F \!:\! \mathbb{R}^n \!\to\! \mathbb{R}$, an in
 The \emph{completeness axiom} guarantees $\sum_i \mathrm{IG}_i(x, x') = F(x) - F(x')$.
 We approximate the integral with a uniform Riemann sum of $m$ steps, giving
 \begin{equation}
-\mathrm{IG}_i \approx \frac{x_i - x'_i}{m+1} \sum_{k=0}^{m} \frac{\partial F}{\partial x_i}\bigg|_{x' + \frac{k}{m}(x - x')} .
+\mathrm{IG}_i \approx \frac{x_i - x'_i}{m+1} \sum_{r=0}^{m} \frac{\partial F}{\partial x_i}\bigg|_{x' + \frac{r}{m}(x - x')} .
 \label{eq:riemann}
 \end{equation}
 The approximation error of this uniform average shrinks as $m$ grows, and non-smooth integrands converge more slowly than smooth ones.
@@ -197,7 +200,8 @@ y_t = -\frac{1}{2\sigma^2 D} \lVert a_t - \mu_t \rVert^2 ,
 \label{eq:target}
 \end{equation}
 with $\sigma^2 = 1$ and the constant entropy term dropped.
-Here $D{=}512$ is the number of active action entries, namely the 64-step chunk over the eight active dimensions, so the target is proportional to the negative mean squared deviation per entry and its scale does not depend on chunk length.
+Here $D{=}512$ is the number of active action entries, namely the 64-step chunk over the eight active dimensions.
+The target is therefore proportional to the negative mean squared deviation per entry, and its scale does not depend on chunk length.
 We write $\Delta\log\pi$ for changes in this target throughout.
 The reference action $a_t$ is computed once under a fixed random seed with gradients disabled.
 This makes $F(x) = y_t$ a deterministic, differentiable function of the input.
@@ -268,7 +272,8 @@ Algorithm~\ref{alg:perstep} summarizes the procedure.
 The vision baseline is a uniform gray image in the external-camera slot only.
 The remaining five camera slots carry constant background images and are frozen at their real values, so IG attributes only to the informative slot.
 The language baseline is a minimal two-token sequence (the tokenizer's padding and end-of-sequence tokens, since T5 has no beginning-of-sequence token) encoded through T5-XXL rather than a zero vector.
-The encoder output is zero-padded to the stored embedding length, and the language forward passes attend over the task's real token span, so the attended baseline is the encoded token pair followed by zero vectors at the remaining attended positions.
+The encoder output is zero-padded to the stored embedding length, and the language forward passes attend over the task's real token span.
+The attended baseline is therefore the encoded token pair followed by zero vectors at the remaining attended positions.
 A zero vector is numerically safe through the GELU-based language adaptor but is semantically degenerate, and it roughly doubled the completeness error in preliminary single-step tests.
 The state baseline is a zero vector in the normalized joint space, a numerically safe choice that keeps per-joint attributions readable.
 Section~\ref{sec:anchoring} quantifies sensitivity to the vision baseline choice.
@@ -316,7 +321,7 @@ Correlations are computed over the 729 external-camera patch scores for vision, 
 All sanity re-runs compute the perturbed attribution at $m{=}16$ on the first 50 steps of each task-seed base run and correlate it against that run's original $m{=}64$ attribution.
 The standard C1 and C2 rows use the main pass as the base run, while the frozen and cascade variants use the regeneration run described in Section~\ref{sec:setup}.
 The standard C1 result ($\rho \approx 0.95$, Section~\ref{sec:sanity}) doubles as a control showing that the $m$ budget mismatch alone does not decorrelate attributions.
-The stored attribution sidecars did not encode the integration budget in their filenames, and the $m{=}128$ extension ran concurrently with the variant stages on PegInsertionSide and PickSingleYCB.
+The stored attribution sidecars, the per-step attribution tensors saved alongside each run, did not encode the integration budget in their filenames, and the $m{=}128$ extension ran concurrently with the variant stages on PegInsertionSide and PickSingleYCB.
 Some frozen-target and cascade rows for those two tasks may therefore correlate against $m{=}128$ attributions rather than $m{=}64$ ones.
 The standard C1 control bounds the budget effect, and no verdict depends on this ambiguity.
 
@@ -334,7 +339,8 @@ A policy without task-specific fine-tuning exercises the attribution machinery o
 RDT-1B (28 layers, 2048-dim) serves as the scale check on PickCube with the original authors' fine-tuned weights, a checkpoint that can solve the task.
 An initial scale-check run produced 7/20 successes.
 A re-run of the same checkpoint for the faithfulness evaluation, on the follow-up machine and under the deviations recorded below, produced 9/20.
-A Month 5 reproduction run of the same checkpoint and seeds with real T5-XXL embeddings on a third machine produced 8/20 successes, with vision faithfulness medians inside the episode bootstrap intervals of the committed run (insertion 0.919 against 0.926 and deletion 0.264 against 0.248), and its records are committed.
+A Month 5 reproduction run of the same checkpoint and seeds with real T5-XXL embeddings on a third machine produced 8/20 successes, and its records are committed.
+Its vision faithfulness medians fall inside the episode bootstrap intervals of the committed run (insertion 0.919 against 0.926 and deletion 0.264 against 0.248).
 
 \paragraph{Tasks.}
 We evaluate on four ManiSkill3~\cite{tao2024maniskill3} manipulation tasks with a simulated Franka Panda 7-DoF arm.
@@ -351,9 +357,11 @@ PickSingle does not exist under that name, so the published PickSingleYCB-v1 was
 A fifth task, TurnFaucet-v1, was attempted as an articulation substitute and dropped during the pass.
 Its reference-action norms declined steadily from the first step toward the signal threshold, the opposite of every other task, and the run was producing no successes for its pod cost.
 The Month 4 follow-up machine could not host T5-XXL, so every follow-up run on it loaded the authors' precomputed instruction embeddings and a zeroed placeholder in place of the encoded two-token language baseline.
-The affected language numbers are the seed 42 RDT-1B language values reported with Table~\ref{tab:faithfulness}, the variant language correlations in Table~\ref{tab:sanity}, and the regeneration-run language distributions in Figure~\ref{fig:completeness}, so comparisons between them and main-pass language numbers span two baselines, while the vision and state baselines are unchanged.
+The affected language numbers are the seed 42 RDT-1B language values reported with Table~\ref{tab:faithfulness}, the variant language correlations in Table~\ref{tab:sanity}, and the regeneration-run and $m{=}128$-overlay language distributions in Figure~\ref{fig:completeness}.
+Comparisons between them and main-pass language numbers therefore span two baselines, while the vision and state baselines are unchanged.
 The Month 6 runs at seeds 142 and 242 encoded their instruction embeddings and the two-token language baseline with T5-XXL on their own machine, so the pooled 1B language row in Table~\ref{tab:faithfulness} spans both language-baseline provenances.
-The follow-up PickSingleYCB runs also reused the PickCube instruction embedding because the task's own embedding was unavailable, so no per-task language metrics are tabulated from them, the PickSingleYCB language distributions in Figure~\ref{fig:completeness} carry that proxy embedding, and the pooled variant language correlations include those proxy rows.
+The follow-up PickSingleYCB runs also reused the PickCube instruction embedding because the task's own embedding was unavailable, so no per-task language metrics are tabulated from them.
+The PickSingleYCB language distributions in Figure~\ref{fig:completeness} carry that proxy embedding, and the pooled variant language correlations include those proxy rows.
 
 \paragraph{Protocol.}
 The full evaluation pass is 4 tasks $\times$ 2 seeds (42, 142) $\times$ 50 episodes at $m{=}64$.
@@ -378,7 +386,8 @@ The main pass ran on a single RTX 4090 (24\,GB).
 The original $m{=}128$ subset (PickCube and StackCube) ran on an RTX 5090 (32\,GB, PyTorch 2.8 with CUDA 12.8).
 The $m{=}128$ extension to the other two tasks and the remaining Month 4 follow-up experiments ran on a machine with two RTX 4090s.
 The displacement measurement and the Month 5 reproduction run used a RunPod RTX PRO 6000 Blackwell (96\,GB), which hosted T5-XXL and therefore used real instruction embeddings.
-The Month 6 runs (the seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation, and the seed 142 displacement runs) ran on a second RunPod RTX PRO 6000 pod, which encoded its own T5-XXL instruction embeddings and two-token language baseline.
+The Month 6 runs (the seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation, and the seed 142 displacement runs) ran on a second RunPod RTX PRO 6000 pod.
+That pod encoded its own T5-XXL instruction embeddings and two-token language baseline.
 T5-XXL instruction embeddings are precomputed offline, so the 4.8B-parameter encoder never resides in GPU memory during attribution.
 
 %% ================================================================
@@ -421,7 +430,7 @@ StackCube & 304 & 2.54 & 59.9 && 1.87 & 75.0 && 7.46 & 25.3 \\
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/fig_a_completeness.png}
-\caption{Completeness error distributions by task and modality over all policy calls of the committed regeneration run at $m{=}64$ (2 seeds $\times$ 15 episodes per task), with $m{=}128$ overlays on the PegInsertionSide and PickSingleYCB panels and the seed 42 RDT-1B scale-check rows overlaid on the PickCube panel. Vision and language mass concentrates at low error with tails extending past the 3\% line. State shows a longer right tail. The PickSingleYCB language histograms reflect the proxy PickCube instruction embedding recorded in Section~\ref{sec:setup}. All language distributions in this figure come from runs that used the zeroed language baseline recorded in Section~\ref{sec:setup}. Errors are clipped at 0.5 (50\%) for display, so the rightmost bin pools all larger errors.}
+\caption{Completeness error distributions by task and modality over all policy calls of the committed regeneration run at $m{=}64$ (2 seeds $\times$ 15 episodes per task). The PegInsertionSide and PickSingleYCB panels carry $m{=}128$ overlays, and the PickCube panel carries the seed 42 RDT-1B scale-check rows. Vision and language mass concentrates at low error with tails extending past the 3\% line. State shows a longer right tail. The PickSingleYCB language histograms reflect the proxy PickCube instruction embedding recorded in Section~\ref{sec:setup}. All language distributions in this figure come from runs that used the zeroed language baseline recorded in Section~\ref{sec:setup}. Errors are clipped at 0.5 (50\%) for display, so the rightmost bin pools all larger errors.}
 \label{fig:completeness}
 \end{figure}
 
@@ -436,7 +445,8 @@ Inserting highly attributed patches rapidly recovers the target and deleting the
 Figure~\ref{fig:auc} shows the aggregated insertion and deletion curves.
 Language AUCs are mixed, with insertion between 0.344 and 0.504.
 Each instruction tokenizes to only 16 to 30 tokens, so a top-1\% deletion already removes a full token and the $k$-grid is coarse relative to the sequence length.
-The pretrained-only policy itself compounds this, since on the fine-tuned 1B the language deletion AUC improves to passing and the insertion AUC improves but passes at only two of the three seeds (Table~\ref{tab:faithfulness}, bottom block), though that comparison spans the language-baseline deviation recorded in Section~\ref{sec:setup}.
+The pretrained-only policy itself compounds this, since on the fine-tuned 1B the language deletion AUC improves to passing and the insertion AUC improves but passes at only two of the three seeds (Table~\ref{tab:faithfulness}, bottom block).
+That comparison spans the language-baseline deviation recorded in Section~\ref{sec:setup}.
 
 \begin{table}[t!]
 \centering
@@ -472,7 +482,7 @@ RDT-1B pool & Vision & 1{,}199 & $-$0.00015 & \textbf{0.940} & \textbf{0.288} \\
 RDT-1B pool & Lang. & 1{,}199 & $-$0.00012 & 0.541 & \textbf{0.267} \\
 \bottomrule
 \end{tabular}
-\caption{Faithfulness at $m{=}64$. $\Delta\log\pi$ is the median target change after top-5\% deletion, in nats. Bold AUC values pass their bars (vision insertion $\geq$0.60 and deletion $\leq$0.40, language $\geq$0.55 and $\leq$0.45). The top block is RDT-170M with both seeds on signal-bearing rows ($|$ref action$| \geq 15$). The bottom block is the RDT-1B scale check with the authors' fine-tuned weights on three evaluation seeds (42, 142, 242, with 9, 1, and 5 of 20 successes), on all policy-call rows per seed. The signal filter is inapplicable at 1B because the fine-tuned policy's action norms sit below 15 throughout. The seed 42 language values were computed against the zeroed language baseline recorded in Section~\ref{sec:setup}, while the seed 142 and 242 runs encoded their instruction embeddings and the two-token baseline with T5-XXL on their own machine, so the pooled language row spans the two language-baseline provenances. The vision rows are unaffected by that difference. The three vision rows show the cross-scale vision result is robust to the evaluation seed, passing both bars at every seed. The pooled vision 95\% episode bootstrap interval is 0.926 to 0.954 for insertion and 0.250 to 0.312 for deletion. Language insertion is seed-sensitive. It is 0.562, 0.583, and 0.519 at the three seeds, so it passes the 0.55 bar at two of the three seeds, and the pooled value 0.541 sits just under the bar with a 95\% interval of 0.449 to 0.605 that straddles it. We therefore report the language insertion pass as seed-sensitive rather than robust, while the vision verdicts and the language deletion pass hold at every seed. These are evaluation seeds on one checkpoint, so they measure rollout and sampling variance, not generalization across training initializations.}
+\caption{Faithfulness at $m{=}64$. $\Delta\log\pi$ is the median target change after top-5\% deletion, in nats. Bold AUC values pass their bars (vision insertion $\geq$0.60 and deletion $\leq$0.40, language $\geq$0.55 and $\leq$0.45). The top block is RDT-170M with both seeds on signal-bearing rows ($|$ref action$| \geq 15$). The bottom block is the RDT-1B scale check with the authors' fine-tuned weights on three evaluation seeds (42, 142, 242, with 9, 1, and 5 of 20 successes), on all policy-call rows per seed. The signal filter is inapplicable at 1B because the fine-tuned policy's action norms sit below 15 throughout. The seed 42 language values were computed against the zeroed language baseline recorded in Section~\ref{sec:setup}, while the seed 142 and 242 runs encoded their instruction embeddings and the two-token baseline with T5-XXL on their own machine. The pooled language row therefore spans the two language-baseline provenances. The vision rows are unaffected by that difference. The three vision rows show the cross-scale vision result is robust to the evaluation seed, passing both bars at every seed. The pooled vision 95\% episode bootstrap interval is 0.926 to 0.954 for insertion and 0.250 to 0.312 for deletion. Language insertion is seed-sensitive. It is 0.562, 0.583, and 0.519 at the three seeds, so it passes the 0.55 bar at two of the three seeds. The pooled value 0.541 sits just under the bar with a 95\% interval of 0.449 to 0.605 that straddles it. We therefore report the language insertion pass as seed-sensitive rather than robust, while the vision verdicts and the language deletion pass hold at every seed. These are evaluation seeds on one checkpoint, so they measure rollout and sampling variance, not generalization across training initializations.}
 \label{tab:faithfulness}
 \end{table}
 
@@ -568,7 +578,9 @@ In total the overlay pipeline emitted 3{,}881 PNG artifacts (per-step overlays, 
 \section{From Misses to Mechanisms}
 \label{sec:mechanisms}
 
-The language AUC miss is accounted for by the token-grid coarseness and the 1B improvement in Section~\ref{sec:faithfulness}, and the state median miss by the per-dimension error accumulation noted with Table~\ref{tab:correctness}, which leaves three open items.
+The token-grid coarseness and the partial 1B improvement in Section~\ref{sec:faithfulness} explain much of the language AUC miss, though language insertion stays seed-sensitive even at 1B.
+The state median miss follows from the per-dimension error accumulation noted with Table~\ref{tab:correctness}.
+Three items remain open.
 Deletion magnitudes sit far below the 0.5-nat bar.
 C1 correlations sit far above the 0.2 bar.
 The completeness pass rate sits below the 90\% bar.
@@ -580,7 +592,8 @@ This section reports three targeted experiments that turn each into either an ex
 The natural first hypothesis for the $\Delta\log\pi$ miss is policy weakness.
 A pretrained-only 170M produces near-constant action chunks, so deleting a few tokens cannot move the action mean far.
 If that were the cause, a policy that actually solves the task would show larger deletion magnitudes.
-We therefore ran the full faithfulness protocol on RDT-1B with the authors' fine-tuned weights on PickCube at three evaluation seeds (20 episodes each, with 9, 1, and 5 successes, 1{,}199 pooled policy-call rows, with the signal filter inapplicable here as noted in Table~\ref{tab:faithfulness}).
+We therefore ran the full faithfulness protocol on RDT-1B with the authors' fine-tuned weights on PickCube at three evaluation seeds (20 episodes each, with 9, 1, and 5 successes, and 1{,}199 pooled policy-call rows).
+The signal filter is inapplicable here, as noted in Table~\ref{tab:faithfulness}.
 
 The result refutes the hypothesis (Table~\ref{tab:faithfulness}, bottom block, and Figure~\ref{fig:scale}).
 Every ranking-based score improves on the competent policy.
@@ -598,20 +611,23 @@ The PickCube 1B curve rises by 15\%, the 170M curves stay roughly flat in relati
 The iterative denoiser therefore does not pull the perturbation back with solver depth.
 The single-step chain at $T{=}1$ sits above the two-step value on every curve, so the only contraction in the data is the gap between one-step and iterative solving rather than a pullback that deepens with iteration depth.
 The cross-scale magnitude gap is a regime effect, not evidence of robustness.
-The fine-tuned 1B operates at a roughly 3$\times$ smaller action norm, and at the matched top-5\% deletion fraction its relative displacement is at least as large as the 170M value at every solver-step count, with PickCube medians of 8.5\% against 5.1\% at $T{=}5$.
+The fine-tuned 1B operates at a roughly 3$\times$ smaller action norm.
+At the matched top-5\% deletion fraction its relative displacement is at least as large as the 170M value at every solver-step count, with PickCube medians of 8.5\% against 5.1\% at $T{=}5$.
 The 1B displaces relatively more, which rules out any reading where the stronger policy resists the perturbation, and the non-overlapping action-norm regimes preclude a controlled cross-scale robustness comparison.
 The small $\Delta\log\pi$ therefore comes from the readout.
 The log-density reads the squared displacement averaged over the $D{=}512$ active entries, so a 170M-scale move of 5\% of the action norm becomes a magnitude near $10^{-3}$ nats by construction.
 The linear-readout $\ell_2$ target in Section~\ref{sec:targets-results} reports this same displacement directly without the quadratic per-entry averaging, which is why it recovers a usable magnitude.
 The absolute scale of $\Delta\log\pi$ also depends on the normalization convention (Section~\ref{sec:metrics}).
-Under the sum-form target $-\frac{1}{2\sigma^2}\lVert a_t - \mu_t \rVert^2$, without the $1/D$ factor, every reported value scales by $D{=}512$, which would put the 170M vision magnitudes at roughly $-$0.7 to $-$2.0 nats (above the 0.5 bar) and the 1B value near $-$0.08 (below it).
+Under the sum-form target $-\frac{1}{2\sigma^2}\lVert a_t - \mu_t \rVert^2$, without the $1/D$ factor, every reported value scales by $D{=}512$.
+That convention would put the 170M vision magnitudes at roughly $-$0.7 to $-$2.0 nats (above the 0.5 bar) and the 1B value near $-$0.08 (below it).
 The convention is identical across the 170M and 1B runs, so the cross-scale direction is unaffected, but any fixed magnitude bar is meaningful only relative to a stated convention.
 The practical consequence is a measurement rule.
 For diffusion policies, magnitude-based faithfulness bars inherited from classifier evaluation do not transfer to a log-density target.
 The magnitude shrank as the policy improved in our cross-scale comparison, and its relation to any fixed bar depends on the normalization convention.
 Ranking-based insertion/deletion metrics remain discriminative and well-behaved.
 We state the scope plainly.
-The cross-scale displacement evidence is observational and comes from two tasks at two seeds at 1B scale and one seed at 170M, with 8 to 40 episodes per curve, and the faithfulness scale check covers one task at three seeds.
+The cross-scale displacement evidence is observational and comes from two tasks at two seeds at 1B scale and one seed at 170M, with 8 to 40 episodes per curve.
+The faithfulness scale check covers one task at three seeds.
 The 1B rows are also unfiltered, because the fine-tuned policy operates below the signal threshold throughout, which is a population difference from the 170M block.
 The seed 42 1B run also carries the embedding provenance change recorded in Section~\ref{sec:setup}, and the seed 142 and 242 runs used embeddings encoded on their own machine.
 Even so, the direction of the effect admits no weak-policy reading, since the vision magnitude shrinks by 20$\times$ while every AUC improves.
@@ -626,7 +642,7 @@ Even so, the direction of the effect admits no weak-policy reading, since the vi
 \begin{figure}[tbp]
 \centering
 \includegraphics[width=0.95\linewidth]{figures/fig_displacement_vs_T.png}
-\caption{Action displacement under top-5\% vision deletion as a function of DPM-Solver++ steps and model scale, on PickCube and StackCube. Top, the absolute displacement, where the 170M sits well above the 1B. Bottom, the displacement relative to the action norm, where every curve lies between roughly 4 and 10\% across the full solver-step sweep and the 1B curves sit at or above the 170M curves at matched solver steps. Between the two-step and twenty-step endpoints the displacement does not progressively contract on any curve, with endpoint changes ranging from $-$2.3 to $+$22.2\% and intermediate dips on the StackCube curves, while the single-step point sits above the two-step value on every curve. The deletion therefore moves the action at both scales, so the small deletion log-density is a readout artifact rather than denoiser contraction. Bands are 95\% episode bootstrap intervals over 8 to 40 episodes per curve, with the 1B curves pooled over two evaluation seeds (42 and 142).}
+\caption{Action displacement under top-5\% vision deletion as a function of DPM-Solver++ steps and model scale, on PickCube and StackCube. Top, the absolute displacement, where the 170M sits well above the 1B. Bottom, the displacement relative to the action norm, where every curve lies between roughly 4 and 10\% across the full solver-step sweep and the 1B curves sit at or above the 170M curves at matched solver steps. Between the two-step and twenty-step endpoints the displacement does not progressively contract on any curve, with endpoint changes ranging from $-$2.3 to $+$22.2\% and intermediate dips on the StackCube curves. The single-step point sits above the two-step value on every curve. The deletion therefore moves the action at both scales, so the small deletion log-density is a readout artifact rather than denoiser contraction. Bands are 95\% episode bootstrap intervals over 8 to 40 episodes per curve, with the 1B curves pooled over two evaluation seeds (42 and 142).}
 \label{fig:displacement}
 \end{figure}
 
@@ -659,7 +675,8 @@ maxdev & 6.67 & 10.9 & 713 & $-$0.1562 & \textbf{0.723} & \textbf{0.273} & 765 \
 The raw $\ell_2$ target delivers $\Delta F$ at $k{=}5\%$ of $-$1.23, which is 2.5$\times$ the 0.5 magnitude bar in absolute value.
 Its AUCs remain faithful, with insertion at 0.755 and deletion at 0.284, both passing.
 The maximum-deviation target improves the magnitude by roughly 110$\times$ over $\log\pi$ on this matched population but falls short of the bar.
-On the same matched population the $\log\pi$ deletion AUC misses its 0.40 bar, at 0.448 with a 95\% interval of 0.408 to 0.504, while both alternative targets pass it, so the main-pass deletion verdict does not carry over to this harder 0-success population.
+On the same matched population the $\log\pi$ deletion AUC misses its 0.40 bar, at 0.448 with a 95\% interval of 0.408 to 0.504, while both alternative targets pass it.
+The main-pass deletion verdict therefore does not carry over to this harder 0-success population.
 The units caveat from Section~\ref{sec:targets} applies strongly here.
 The bar was defined for $\Delta\log\pi$ in nats, while the $\ell_2$ change is measured in action-space units, and the two targets are monotone transformations of the same displacement.
 The comparison therefore establishes that a usable deletion signal exists under an alternative target, not that the same physical quantity crossed the same bar.
@@ -684,7 +701,8 @@ Our log-density target is recomputed under the perturbed model, so the target mo
 The frozen-target variant eliminates that explanation, and the correlation persists.
 It lands at $\rho = 0.929$ on vision, essentially unchanged from the moving-target value of roughly 0.95.
 Randomizing the entire backbone (the cascade variant) degrades vision correlation only to 0.713 and leaves language at 0.910 (Figure~\ref{fig:c1}).
-Excluding the PickSingleYCB rows, which carry the embedding proxy recorded in Section~\ref{sec:setup}, moves the frozen language value from 0.862 to 0.843, moves every other frozen and cascade value by at most 0.024, and leaves the cascade language value unchanged.
+Excluding the PickSingleYCB rows, which carry the embedding proxy recorded in Section~\ref{sec:setup}, moves the frozen language value from 0.862 to 0.843.
+It moves every other frozen and cascade value by at most 0.024 and leaves the cascade language value unchanged.
 
 \begin{figure}[tbp]
 \centering
@@ -783,7 +801,8 @@ Completeness medians of roughly 2\% with a budget-dependent tail are, in our ass
 The two mechanisms reframe how attribution quality should be measured on this model class.
 Magnitude-based faithfulness thresholds are inherited from classifier studies, where deleting salient evidence collapses the prediction.
 Under a log-density target on a diffusion policy they mislead.
-The magnitude is a quadratic per-entry readout of a small action displacement, the smaller absolute displacement at 1B reflects its smaller action-norm regime while its relative displacement is at least as large, and the magnitude's relation to any fixed bar depends on the normalization convention.
+The magnitude is a quadratic per-entry readout of a small action displacement.
+The smaller absolute displacement at 1B reflects its smaller action-norm regime while its relative displacement is at least as large, and the magnitude's relation to any fixed bar depends on the normalization convention.
 Ranking-based insertion/deletion AUCs remain discriminative and should carry the faithfulness verdict.
 Model-randomization sanity bars calibrated for pure-gradient saliency are similarly miscalibrated for input-multiplied methods.
 Input randomization is the check that separates signal from anchor.
@@ -805,13 +824,16 @@ The distribution figures (Figures~\ref{fig:completeness} and~\ref{fig:auc}) and 
 The primary evaluation deliberately uses a pretrained-only 170M policy, which exercises failure behavior but caps language-grounding effects.
 State-modality completeness misses the 3\% median bar at $m{=}64$, at 4.53 to 7.46\%, which we attribute to error accumulation over the eight active dimensions and to small completeness denominators on state rows.
 The insertion and deletion faithfulness protocol is reported for the vision and language modalities only, so the state modality carries completeness and sanity verdicts but no perturbation faithfulness AUC.
-State perturbation faithfulness is left to future work because the eight active state dimensions offer no graded deletion grid comparable to the 729 vision patches or the instruction token sequence, so state is the modality this evaluation covers least.
+State perturbation faithfulness is left to future work because the eight active state dimensions offer no graded deletion grid comparable to the 729 vision patches or the instruction token sequence.
+For the same coverage reason C2 randomizes only the vision and language inputs, and a state-dimension permutation variant would give state a discriminating input-randomization check, which we also leave to future work.
+State is therefore the modality this evaluation covers least.
 The C2 language shuffle operates on post-encoding token order rather than pre-encoding text, because a T5 re-encoding was unavailable at run time.
 The shuffled embeddings cover the same vocabulary, and the check still passes on three of four tasks.
 The StackCube C2 language reading (0.240) is borderline for the stated repeated-token reason.
 The baseline-sensitivity study covers the vision modality only.
 The follow-up language attributions carry the baseline and embedding deviations recorded in Section~\ref{sec:setup}.
 The failure taxonomy is assigned algorithmically from completeness signatures rather than by human annotation, and it merges spurious-background cases into vision mis-focus and ambiguous-instruction cases into language mis-grounding.
+All findings come from a single model family (RDT) in a single simulator (ManiSkill3), and the 1B faithfulness evaluation covers a single task.
 All results are in simulation.
 
 \paragraph{Engineering notes.}
@@ -855,9 +877,12 @@ The published table values apply the signal-bearing filter of Section~\ref{sec:s
 Episode seeds are fixed at 42 and 142, with 242 added for the third RDT-1B evaluation seed, where episode $e$ uses seed $42{+}e$, $142{+}e$, or $242{+}e$, and the diffusion noise is seeded per forward pass.
 Single-command scripts regenerate the full pass, faithfulness, sanity, target-ablation, and displacement stages from the fixed seeds, with the exact commands as executed on the original GPUs, except for the later strengthening runs.
 The seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation runs, and the seed 142 displacement runs used the same entry points and flags at the seeds and scopes recorded in the released data README.
-The RDT-1B stages additionally require the RDT authors' ManiSkill fine-tuned checkpoint from the robotics-diffusion-transformer maniskill-model repository on Hugging Face, without which the loader falls back to the Hugging Face base weights, applying the project LoRA only when a local checkpoint exists, and neither fallback reproduces the published 1B numbers.
+The RDT-1B stages additionally require the RDT authors' ManiSkill fine-tuned checkpoint from the robotics-diffusion-transformer maniskill-model repository on Hugging Face.
+Without it the loader falls back to the Hugging Face base weights, applying this project's local PickCube LoRA fine-tune only when its checkpoint exists, and neither fallback reproduces the published 1B numbers.
 The committed records are not a byte-level reproduction of every table.
-The main evaluation pass and its faithfulness records, the original $m{=}128$ PickCube and StackCube subset, the standard sanity runs, the initial RDT-1B scale-check run, the per-step attribution sidecars, and the overlay images were produced on cloud GPUs that have since been decommissioned. None of them are part of the release.
+Six artifact families were produced on cloud GPUs that have since been decommissioned.
+They are the main evaluation pass and its faithfulness records, the original $m{=}128$ PickCube and StackCube subset, the standard sanity runs, the initial RDT-1B scale-check run, the per-step attribution sidecars, and the overlay images.
+None of them are part of the release.
 The records we release are the regeneration run of Section~\ref{sec:setup}, which reproduces the target ablation and corroborates the main-pass protocol at a smaller episode budget.
 The release also holds the RDT-1B faithfulness records at all three evaluation seeds, the $m{=}128$ PegInsertionSide and PickSingleYCB runs, the frozen-target and cascade sanity runs, and the baseline-sensitivity and target-ablation runs including the matched-population $\log\pi$ pair.
 It further holds the six displacement records behind Figure~\ref{fig:displacement}, the RDT-1B base attribution runs behind the second displacement seed, the Month 5 1B reproduction records, and a validation record for the displacement identity.
