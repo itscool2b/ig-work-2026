@@ -4,7 +4,16 @@ import json, glob, statistics as st
 
 
 def load(path):
-    return [json.loads(l) for l in open(path)]
+    rows = []
+    for l in open(path):
+        l = l.strip()
+        if not l:
+            continue
+        try:
+            rows.append(json.loads(l))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def med(xs):

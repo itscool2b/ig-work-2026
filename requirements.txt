@@ -28,8 +28,9 @@ gymnasium
 h5py
 PyYAML
 
-# The Month 2 demo ig_llava.py additionally needs bitsandbytes and accelerate
-# (4-bit quantization with device_map). Not needed by the RDT pipeline.
+# The Month 2 demo ig_llava.py additionally needs bitsandbytes for its 4-bit
+# quantization. accelerate (device_map) is also used by encode_task_lang.py
+# and ig_tinyllama.py and installs transitively via peft above.
 
 # NOT pip-installable: the RDT authors' source repository must be cloned to
 # ~/rdt-repo (see README "Reproducing"). Model checkpoints download from
