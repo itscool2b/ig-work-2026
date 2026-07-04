@@ -101,4 +101,4 @@ Convergence (Riemann sum, PAD baseline):
 | 500 | 9.96% |
 | 1000 | 0.55% |
 
-Convergence is approximately O(1/m^2), consistent with SiLU being a smooth activation. m=1000 is needed to get under 3%.
+The uniform endpoint average converges at O(1/m) in general. The measured error here falls faster than that rate as m grows, consistent with SiLU being a smooth activation. m=1000 is needed to get under 3%.

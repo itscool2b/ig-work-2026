@@ -2,12 +2,12 @@
 
 Every file is JSONL, one record per line. Step records carry per-modality
 completeness error, IG sums, reference action norm, and wall time, and the step
-files also interleave one `episode_end` record per episode (carrying the
-episode's success flag; these rows are the source of the success counts quoted
-below, and loaders should dispatch on the `event` field). Faithfulness
+files also interleave one `episode_end` record per episode carrying the
+episode's success flag. Those rows are the source of the success counts quoted
+below, and loaders should dispatch on the `event` field. Faithfulness
 and sanity records are keyed to the same policy calls. Episode `e` uses
 environment seed `42+e` or `142+e`, plus `242+e` for the third RDT-1B evaluation
-seed; the diffusion noise is re-seeded per forward pass. The signal-bearing filter (reference action norm >= 15) is applied when
+seed. The diffusion noise is re-seeded per forward pass. The signal-bearing filter (reference action norm >= 15) is applied when
 computing the published table values, not stored in the files.
 
 ## What these files are (and are not)
@@ -19,13 +19,13 @@ last-layer and C2 input randomization), the main-pass faithfulness records, the
 initial RDT-1B scale check, the ~3,881 overlay PNGs, and the per-step attribution
 sidecar tensors were produced on cloud GPUs that have since been decommissioned and are
 not redistributed here. The headline completeness, faithfulness, and
-standard-sanity tables (Tables 1-3) were computed from those main-pass records and
+standard-sanity tables (Tables 1 to 3) were computed from those main-pass records and
 are preserved in the analysis notebooks (saved outputs)
 rather than regenerable from the files below. Note in particular that the
 notebook's faithfulness and standard-sanity cells compute over an unfiltered
 (all-calls) population, so they do not reproduce the signal-bearing table values on
 their own. The files below are the regeneration and follow-up runs that are
-shippable; they reproduce the target-ablation table and corroborate the protocol at
+shippable. They reproduce the target-ablation table and corroborate the protocol at
 a smaller episode budget.
 
 ## Step / completeness records
@@ -38,7 +38,7 @@ a smaller episode budget.
 | `metrics_PickCube-v1_170m_seed{42,142}_logpi.jsonl` | Matched-population logpi target step records, Month 6 (the per-step IG run behind the Table 4 logpi faithfulness column) | regeneration scope, 15 episodes per seed |
 | `metrics_PickCube-v1_1b_seed42.jsonl` | RDT-1B scale check (authors' fine-tuned weights) | 20 episodes, 9 successes; all rows below the signal threshold |
 | `metrics_PickCube-v1_1b_seed{142,242}.jsonl` | RDT-1B scale check, Month 6 evaluation seeds. Environment and IG protocol matched to the committed seed 42 run, executed on a fresh RTX PRO 6000 pod that encoded its own T5-XXL instruction embeddings and two-token language baseline, so the language rows span a different baseline provenance than the seed 42 record (see the paper's Setup deviations) | 20 episodes each, 1 and 5 successes; all rows below the signal threshold |
-| `metrics_StackCube-v1_1b_seed142.jsonl` | RDT-1B StackCube base run for the Month 6 displacement second seed. The 1B is not fine-tuned for StackCube and succeeds on 7 of 20 episodes here; this run only sources the displacement re-run, it is not a faithfulness result | 20 episodes, 7 successes; all rows below the signal threshold |
+| `metrics_StackCube-v1_1b_seed142.jsonl` | RDT-1B StackCube base run for the Month 6 displacement second seed. The 1B is not fine-tuned for StackCube and succeeds on 7 of 20 episodes here; this run only sources the displacement re-run and is not a faithfulness result | 20 episodes, 7 successes; all rows below the signal threshold |
 
 ## Faithfulness records (`metrics_faithfulness_*`)
 
@@ -51,7 +51,7 @@ a smaller episode budget.
 | `..._PickCube-v1_170m_seed*_logpi_*.jsonl` | Matched-population logpi faithfulness, Month 6 (Table 4 logpi column, same re-run population as l2/maxdev, ~750 rows). Deletion AUC 0.448 misses the 0.40 bar on this 0-success population, where l2 and maxdev pass. |
 
 (The faithfulness files over the duplicated step runs noted above, PegInsertionSide
-seed142 m128 and the seed42 l2/maxdev pair, mirror those replayed rows; the
+seed142 m128 and the seed42 l2/maxdev pair, mirror those replayed rows. The
 bootstrap loader's dedup applies to them the same way.)
 
 ## Sanity records (`metrics_sanity_*`)
@@ -76,11 +76,11 @@ PickCube and StackCube, seed 42, first 30 steps each (Table 5).
 | `metrics_displacement_metrics_{PickCube,StackCube}-v1_1b_seed142_*.jsonl` | Displacement second seed, Month 6 (seed 142, vision modality, `--limit 60` stratified, `--no-signal-filter` since 1B norms sit below the threshold). Pooled with the seed-42 `m5` files for the two-seed 1B curves in the displacement figure, 40 episode groups on PickCube and 25 on StackCube. |
 | `disp_validate.jsonl` | Validation record for the displacement identity. Contains displacement-side rows only: two policy calls at each of solver steps {1, 5, 20} (six rows, deletion grid {0,5,20}%, rankings from the T=5 attributions, with l2/rms/relative fields). The identity check uses the two solver-steps-5 rows, joining their nonzero deletion fractions against the matching `vision_deletion_curve` values in `m5_metrics_faithfulness_PickCube-v1_1b_seed42.jsonl` (which ran the production five-step chain), where delta log pi equals minus the squared displacement over (2 x 512), reproducing at correlation ~0.9999997 (recomputing the join from the committed files gives 0.9999998). The other-T rows have no faithfulness counterpart and are not part of the check. |
 | `m5_metrics_PickCube-v1_1b_seed42.jsonl` | Month 5 1B reproduction base run on the RunPod RTX PRO 6000 with real T5-XXL embeddings. 20 episodes, 8 successes (the Month 4 run on identical seeds had 9; per-forward noise seeding does not bit-reproduce across machines and library versions). |
-| `m5_metrics_faithfulness_PickCube-v1_1b_seed42.jsonl` | Reproduction-gate faithfulness over that base run (334 rows). Vision insertion median 0.919 and deletion 0.264, inside the episode-bootstrap intervals of the committed Month 4 run (0.926 and 0.248). |
+| `m5_metrics_faithfulness_PickCube-v1_1b_seed42.jsonl` | Reproduction-gate faithfulness over that base run (334 rows). Vision insertion median 0.919 and deletion 0.264, inside the episode-bootstrap intervals of the committed Month 4 run (0.926 and 0.248). Language insertion median 0.515, below the 0.55 bar, which the paper's Table 2 caption records as a baseline-provenance caveat on the two of three count. |
 | `m5_metrics_PickCube-v1_170m_seed42.jsonl` | Partial 170M smoke record from the pod bootstrap. Contains a re-executed (episode 1, call 0) row pair that shares vision/language errors but differs in state error and wall time, plus a dangling partial episode from an interrupted run. Used by no table; the analysis loader's dedup keeps the last row. |
 
 The StackCube 1B base run (5 episodes, seed 42) that supplied sidecars for
-`m5_metrics_displacement_StackCube-v1_1b.jsonl` is not committed; only its
+`m5_metrics_displacement_StackCube-v1_1b.jsonl` is not committed. Only its
 displacement output is. `scripts/run_displacement.sh` regenerates it when
 missing.
 
