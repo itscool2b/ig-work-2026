@@ -1,0 +1,5 @@
+task,m64_vis_pct_le3,m128_vis_pct_le3
+PickCube,68.6,80.5
+StackCube,59.9,89.8
+PegInsertionSide,75.8,70.5
+PickSingleYCB,69.8,72.8

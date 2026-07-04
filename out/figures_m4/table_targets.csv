@@ -1,0 +1,4 @@
+target,median_abs_vision_gap,vis_pct_le3,n_compl,vision_ins_auc,vision_del_auc,vision_dlogp_k5,n_faith
+logpi,0.0120,76.8,699,nan,nan,nan,nan
+l2,3.5194,10.7,721,0.755,0.284,-1.2299,774
+maxdev,0.4375,10.9,713,0.723,0.273,-0.1562,765

@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this code or the released records, please cite the paper below."
+title: "The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusion-Policy Vision-Language-Action Models (code and records)"
+authors:
+  - family-names: Bajpai
+    given-names: Arjun
+repository-code: "https://github.com/itscool2b/ig-work-2026"
+license: MIT
+preferred-citation:
+  type: article
+  title: "The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusion-Policy Vision-Language-Action Models"
+  year: 2026
+  authors:
+    - family-names: Bajpai
+      given-names: Arjun
+    - family-names: Jha
+      given-names: Sumit K.
+    - family-names: Pramanik
+      given-names: Vishal
+    - family-names: Rodriguez
+      given-names: Brian

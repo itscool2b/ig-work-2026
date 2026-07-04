@@ -1,0 +1,52 @@
+#Local RDT-170M config (dev default).
+#Forked from ~/rdt-repo/configs/base.yaml. Kept in this repo rather than
+#modifying ~/rdt-repo/ (cloned third-party repos are never modified). Loaded via yaml.safe_load, same pattern as the 1B
+#config. The only differences from base.yaml are the three model.rdt.* fields;
+#everything else is schema-identical so RDTRunner's config dict is a drop-in.
+
+common:
+  img_history_size: 2
+  action_chunk_size: 64
+  num_cameras: 3
+  state_dim: 128
+
+
+dataset:
+  buf_path: /path/to/buffer
+  buf_num_chunks: 512
+  buf_chunk_size: 512
+
+  epsd_len_thresh_low: 32
+  epsd_len_thresh_high: 2048
+  image_aspect_ratio: pad
+  tokenizer_max_length: 1024
+
+model:
+  lang_adaptor: mlp2x_gelu
+  img_adaptor: mlp2x_gelu
+  state_adaptor: mlp3x_gelu
+  lang_token_dim: 4096
+  img_token_dim: 1152
+  state_token_dim: 128
+  rdt:
+    # 170M: hidden_size 1024, depth 14, num_heads 32, head_dim 32 (inferred from
+    # the published rdt-170m checkpoint — q_norm shape (32,), qkv (3072, 1024),
+    # attn.proj (1024, 1024), 14 blocks). An earlier internal spec said 16 heads but the
+    # actual checkpoint has 32 heads × 32-dim heads. 1B uses 32 / 2048 / 28.
+    hidden_size: 1024
+    depth: 14
+    num_heads: 32
+    cond_pos_embed_type: multimodal
+  noise_scheduler:
+    type: ddpm
+    num_train_timesteps: 1000
+    num_inference_timesteps: 5
+    beta_schedule: squaredcos_cap_v2
+    prediction_type: sample
+    clip_sample: False
+  ema:
+    update_after_step: 0
+    inv_gamma: 1.0
+    power: 0.75
+    min_value: 0.0
+    max_value: 0.9999

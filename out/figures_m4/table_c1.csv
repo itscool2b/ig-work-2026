@@ -1,0 +1,5 @@
+variant,rho_vision,rho_language
+C1 moving (last layer),0.950,0.950
+C1 frozen (last layer),0.929,0.862
+C1 cascade (backbone),0.713,0.910
+C2 (input shuffle),0.130,0.120

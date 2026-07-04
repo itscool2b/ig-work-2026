@@ -1,0 +1,877 @@
+%%%% paper.tex (IJCAI format)
+\typeout{The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusion-Policy Vision-Language-Action Models}
+
+\documentclass{article}
+\pdfpagewidth=8.5in
+\pdfpageheight=11in
+
+\usepackage{ijcai26}
+% Times font, robust across engines. pdfLaTeX (the usual venue build server) uses
+% the portable times package. XeLaTeX/LuaLaTeX use the system Times New Roman,
+% which requires that font to be installed (present on macOS; on a Linux/CI XeTeX
+% build either install it or set the main font to a bundled TeX Gyre Termes by path).
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage{times}
+\else
+  \usepackage{fontspec}
+  \setmainfont{Times New Roman}
+\fi
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage[utf8]{inputenc}
+\usepackage[small]{caption}
+\usepackage{graphicx}
+\usepackage{placeins}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{microtype}
+\usepackage[table]{xcolor}
+
+\renewcommand{\arraystretch}{1.15}
+
+\urlstyle{same}
+
+\title{The Readout, Not the Denoiser: Per-Step Integrated Gradients\\for Diffusion-Policy Vision-Language-Action Models}
+
+\author{
+Arjun Bajpai$^1$
+\and
+Sumit K.\ Jha$^1$
+\and
+Vishal Pramanik$^1$
+\And
+Brian Rodriguez$^1$\\
+\affiliations
+$^1$University of Florida\\
+\emails
+arjunbajpai2009@gmail.com,
+sumit.jha@ufl.edu,
+vishalpramanik@ufl.edu,
+rodrigu.brian@ufl.edu
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Diffusion-based vision-language-action (VLA) policies perform well on robotic manipulation tasks, but their per-decision reasoning remains opaque.
+To our knowledge, we present the first per-step, per-modality application of Integrated Gradients (IG) to a diffusion-policy VLA.
+The method attributes every control decision of the Robotics Diffusion Transformer (RDT) to its vision, language, and state inputs across ManiSkill3 manipulation episodes.
+It defines a deterministic Gaussian log-density target through a fixed-seed denoising chain and runs at the policy-call level to keep full-episode attribution tractable.
+We evaluate on four tasks with two seeds, covering 1{,}341 signal-bearing decisions out of roughly 1{,}900 attributed policy calls.
+Median completeness error is 1.9 to 2.5\% on vision and language.
+Vision insertion and deletion area-under-curve (AUC) scores of 0.79 to 0.87 and 0.29 to 0.35 pass pre-specified faithfulness bars.
+Language AUCs miss most of their bars at 170M, where instructions tokenize to only 16 to 30 tokens, while on the fine-tuned RDT-1B language deletion improves to passing and language insertion is seed-sensitive, passing at two of three evaluation seeds.
+We then report two structural findings about evaluating attribution on diffusion policies.
+First, the log-density change under deletion does not track policy competence.
+A fine-tuned RDT-1B improves its vision AUCs at every one of three evaluation seeds (pooled over all policy calls, vision insertion 0.940, deletion 0.288) while its vision deletion magnitude stays near $-$0.00015 nats.
+A direct measurement shows this is an artifact of the per-entry quadratic log-density readout, which maps a small action displacement to a near-zero nat value, and not of the action being held fixed by the denoiser.
+Ranking-based metrics, not magnitudes, are the right faithfulness tool.
+Second, model-randomization sanity correlations persist even under frozen-target and full-backbone randomization.
+This follows from the input-anchored form of IG, while input randomization remains discriminating and passes ($\rho \leq 0.17$ on vision).
+Finally, a raw $\ell_2$ attribution target restores a usable deletion magnitude of $-$1.23 at $k{=}5\%$ in action-space units, while the log-density target yields $-$0.0014 nats on the same population.
+It keeps AUCs faithful at a quantified cost in completeness.
+We release the full pipeline code and the committed per-step metrics records.
+\end{abstract}
+
+%% ================================================================
+\section{Introduction}
+
+Robotic manipulation policies that fuse vision, language, and proprioceptive state have advanced rapidly.
+Vision-language-action (VLA) models such as RT-2~\cite{zitkovich2023rt2}, Octo~\cite{team2024octo}, and the Robotics Diffusion Transformer (RDT)~\cite{liu2024rdt} execute multi-step tasks from raw sensory input conditioned on natural-language instructions.
+Diffusion-based policies~\cite{chi2023diffusion} have emerged as a particularly effective family within this class.
+They generate action chunks through iterative denoising~\cite{ho2020ddpm} and produce smooth, multimodal action distributions that outperform regression-based alternatives on contact-rich tasks.
+
+Despite these advances, diffusion-policy VLAs remain opaque.
+When a robot fails to grasp an object or misreads an instruction, practitioners cannot tell whether the failure came from visual misattention, language mis-grounding, or proprioceptive misreading without inspecting model internals by hand.
+This limits deployment in safety-critical settings, hampers systematic debugging, and makes it harder for operators to decide when to intervene.
+
+Post-hoc attribution offers a principled path toward interpretability without modifying the policy.
+Integrated Gradients (IG)~\cite{sundararajan2017axiomatic} attributes a model's scalar output to its inputs by integrating gradients along a straight-line path from a baseline to the actual input.
+It satisfies a completeness axiom that makes the attribution quantitatively checkable.
+IG has been applied to image classifiers, question-answering and translation systems, and visual question answering models~\cite{sundararajan2017axiomatic,mudrakarta2018did}, but to our knowledge not to diffusion-policy VLAs operating in episodic robotic control.
+Extending it to this setting raises three engineering obstacles.
+The denoising chain samples noise, and IG requires a deterministic scalar function.
+The multimodal input space needs distinct baselines and interpolation strategies per modality.
+Episodic control demands attribution at thousands of decision points across hundreds of episodes.
+
+This paper addresses those obstacles, but its central message concerns evaluation.
+We find that two expectations inherited from classifier studies fail on diffusion policies for structural reasons, not implementation ones.
+The first expectation is that deleting highly attributed inputs should move the policy's log-density by a large margin.
+It fails because the log-density reads the squared action displacement averaged over the action entries, so a small relative displacement becomes a near-zero magnitude no matter how competent the policy is.
+We demonstrate this with a cross-scale experiment in which a fine-tuned RDT-1B improves its vision ranking scores at every one of three evaluation seeds while its deletion magnitude shrinks below that of a weak 170M policy.
+The second expectation is that randomizing the model should destroy attribution structure.
+It fails because IG multiplies every gradient by the model-independent factor (input $-$ baseline).
+We dissect this with frozen-target and full-backbone randomization variants and connect it to the input-anchoring critique of \citeauthor{adebayo2018sanity}~\shortcite{adebayo2018sanity}.
+Both properties matter to anyone who evaluates attribution methods on diffusion policies, and both stay invisible unless the evaluation protocol is designed to expose them.
+We also show that the magnitude signal is recoverable.
+Swapping the attribution target from the Gaussian log-density to a raw $\ell_2$ distance restores a deletion signal more than two orders of magnitude larger, at a quantified cost in completeness precision.
+
+Our contributions are as follows.
+\begin{enumerate}
+\item \textbf{Method.} A per-step, per-modality IG framework for diffusion-policy VLAs. It combines a Gaussian log-density target that is deterministic and differentiable through a fixed-seed DPM-Solver++ chain, modality-specific baselines, and per-policy-call attribution that makes full-episode evaluation tractable.
+\item \textbf{Evaluation.} A complete quantitative protocol (completeness and perturbation faithfulness at $m{=}64$, model- and input-randomization sanity at $m{=}16$) on four ManiSkill3 tasks with two seeds, plus an $m{=}128$ convergence study and an RDT-1B scale check.
+\item \textbf{Readout-insensitivity finding.} A direct measurement showing the deletion log-density magnitude is structurally insensitive for diffusion policies because it is a quadratic, per-entry-averaged readout of a small action displacement, with ranking-based area-under-curve (AUC) as the appropriate faithfulness metric.
+\item \textbf{Target ablation.} A raw $\ell_2$ target recovers a deletion signal more than two orders of magnitude larger while remaining faithful in AUC terms. This exposes an explicit tradeoff between axiom-level precision and perturbation signal.
+\item \textbf{Input-anchoring finding.} A randomization-depth study (final layer, frozen target, full backbone) showing why model randomization does not collapse IG attributions on VLAs, with input randomization as the discriminating alternative.
+\end{enumerate}
+
+%% ================================================================
+\section{Related Work}
+
+\subsection{Attribution Methods}
+
+Sundararajan et al.~\shortcite{sundararajan2017axiomatic} introduced IG with the sensitivity and implementation-invariance axioms and showed that straight-line path integration satisfies both.
+Later work has addressed limitations of the vanilla method.
+Jha et al.~\shortcite{jha2021smoother} computed attributions over neural stochastic differential equation models to produce smoother attribution maps, and later showed that shaping the injected noise further improves robustness~\cite{jha2022shaping}.
+Walker et al.~\shortcite{walker2024idg} observed that gradients from saturation regions contribute noise and proposed Integrated Decision Gradients, which concentrates integration on the decision-relevant portion of the path.
+For vision transformers, metric-driven attributions~\cite{walker2025metric} and information-flow decompositions~\cite{walker2025infoflow} improve patch-level explanations. Guided IG~\cite{kapishnikov2021guided} adapts the integration path to reduce pixel-level noise.
+Petsiuk et al.~\shortcite{petsiuk2018rise} introduced the insertion and deletion curves we adopt as ranking-based faithfulness metrics.
+The reliability of perturbation metrics is itself an active concern.
+Hooker et al.~\shortcite{hooker2019roar} evaluate attributions by retraining on ablated inputs, Rong et al.~\shortcite{rong2022road} show that deletion without retraining leaks information through the shape of the mask itself, and Tomsett et al.~\shortcite{tomsett2020sanity} find that common saliency metrics are themselves unreliable.
+Our structural findings add a diffusion-policy instance of that caution, where the readout convention rather than the ranking drives the magnitude verdict.
+Adebayo et al.~\shortcite{adebayo2018sanity} established model and data randomization as necessary sanity checks.
+They also observed that attribution methods carrying a multiplicative input term remain partially invariant to model randomization.
+Our results extend that observation to a new model class.
+We measure the invariance across randomization depths on a diffusion-policy VLA and trace it to the same input-anchored form.
+For diffusion generative models in the image domain, cross-attention maps have been used to attribute generated pixels to prompt tokens~\cite{tang2023daam}.
+Such methods explain generated images rather than executed control actions, and they carry no completeness guarantee.
+
+These methods target classifiers, language models, or image generators.
+We extend IG to diffusion-policy VLAs, which requires handling stochastic denoising, action-chunk outputs, and multimodal inputs inside an episodic control loop.
+
+\subsection{Vision-Language-Action Models}
+
+VLA models unify perception, language understanding, and action generation.
+RT-2~\cite{zitkovich2023rt2} fine-tunes a vision-language model to emit discretized actions as token sequences.
+Octo~\cite{team2024octo} trains a generalist policy on a large multi-robot dataset with a transformer backbone.
+Diffusion Policy~\cite{chi2023diffusion} frames action generation as conditional denoising diffusion~\cite{ho2020ddpm}.
+It produces action chunks by iterative refinement rather than single-step regression.
+RDT~\cite{liu2024rdt} scales this approach with a Diffusion Transformer (DiT) backbone, a SigLIP vision encoder~\cite{zhai2023siglip}, and a T5-XXL language encoder~\cite{raffel2020t5}.
+RDT processes six camera slots (three camera views over a two-frame history) through SigLIP into 4{,}374 vision tokens.
+It combines them with up to 1{,}024 language tokens and a 128-dimensional unified state vector, and it generates 64-step action chunks through a five-step DPM-Solver++~\cite{lu2022dpm} denoising schedule.
+This multimodal, multi-step architecture makes RDT a compelling but challenging target for attribution.
+
+\subsection{Interpretability in Robotics}
+
+Prior work on explaining robotic policies has focused on reinforcement learning agents in discrete-action settings.
+Greydanus et al.~\shortcite{greydanus2018visualizing} applied perturbation-based saliency to Atari agents, and counterfactual methods~\cite{amitai2024explaining} contrast the outcomes of executed and alternative actions for policy explanation.
+In continuous control, VisualBackProp~\cite{bojarski2018visualbackprop} visualizes CNN saliency for end-to-end driving policies.
+That setting is single-modality behavior cloning and offers no quantitative attribution guarantees.
+To our knowledge, no prior work provides per-step, completeness-checked, multimodal gradient attribution for diffusion policies in episodic control, together with quantitative attribution-quality metrics across complete manipulation episodes.
+
+%% ================================================================
+\section{Method}
+
+\subsection{Integrated Gradients Preliminaries}
+
+Given a differentiable function $F \!:\! \mathbb{R}^n \!\to\! \mathbb{R}$, an input $x \in \mathbb{R}^n$, and a baseline $x' \in \mathbb{R}^n$, the integrated gradient along dimension $i$ is
+\begin{equation}
+\mathrm{IG}_i(x, x') = (x_i - x'_i) \int_0^1 \frac{\partial F}{\partial x_i}\bigg|_{x' + \alpha(x - x')} d\alpha .
+\label{eq:ig}
+\end{equation}
+The \emph{completeness axiom} guarantees $\sum_i \mathrm{IG}_i(x, x') = F(x) - F(x')$.
+We approximate the integral with a uniform Riemann sum of $m$ steps, giving
+\begin{equation}
+\mathrm{IG}_i \approx \frac{x_i - x'_i}{m+1} \sum_{k=0}^{m} \frac{\partial F}{\partial x_i}\bigg|_{x' + \frac{k}{m}(x - x')} .
+\label{eq:riemann}
+\end{equation}
+The approximation error of this uniform average shrinks as $m$ grows, and non-smooth integrands converge more slowly than smooth ones.
+That fact matters again in Section~\ref{sec:targets-results}.
+
+\subsection{A Deterministic Target Through the Denoising Chain}
+\label{sec:target}
+
+RDT generates actions with a DPM-Solver++~\cite{lu2022dpm} chain of $T{=}5$ denoising steps.
+At each policy call $t$ the model receives an observation $o_t$ made of vision tokens, language embeddings, and proprioceptive state, and it produces a denoised action mean $\mu_t$.
+Under RDT's sample-prediction parameterization, $\mu_t$ is directly the chain's final output.
+The primary attribution target is proportional to the Gaussian log-density of the executed action,
+\begin{equation}
+y_t = -\frac{1}{2\sigma^2 D} \lVert a_t - \mu_t \rVert^2 ,
+\label{eq:target}
+\end{equation}
+with $\sigma^2 = 1$ and the constant entropy term dropped.
+Here $D{=}512$ is the number of active action entries, namely the 64-step chunk over the eight active dimensions, so the target is proportional to the negative mean squared deviation per entry and its scale does not depend on chunk length.
+We write $\Delta\log\pi$ for changes in this target throughout.
+The reference action $a_t$ is computed once under a fixed random seed with gradients disabled.
+This makes $F(x) = y_t$ a deterministic, differentiable function of the input.
+
+Seeding the diffusion noise is critical.
+Without it, each of the $m{+}1$ forward passes in Eq.~\ref{eq:riemann} would draw independent noise.
+That would make $F$ stochastic, leave IG undefined, and break the completeness identity.
+We re-seed the generator identically before every forward pass, so all $m{+}1$ evaluations share one noise realization.
+Each gradient in the Riemann sum is additionally guarded, with any non-finite values zeroed before accumulation, and any material effect of this guard would surface in the measured completeness error.
+
+\subsection{Alternative Scalar Targets}
+\label{sec:targets}
+
+The Gaussian log-density is the canonical choice, but it is not the only scalar that is maximized when the perturbed action equals the reference.
+We evaluate two alternatives, defined as
+\begin{equation}
+y_t^{\ell_2} = -\lVert a_t - \mu_t \rVert_2,
+\qquad
+y_t^{\mathrm{max}} = -\max_j \lvert a_{t,j} - \mu_{t,j} \rvert .
+\end{equation}
+Both are computed over the same $D$ active action entries as Eq.~\ref{eq:target}, and the $\ell_2$ norm carries a small numerical stabilizer inside the square root.
+We abbreviate the maximum-deviation target $y_t^{\mathrm{max}}$ as maxdev in tables and prose.
+The raw $\ell_2$ distance grows linearly rather than quadratically as the action mean moves away from the reference, so its gradient does not vanish near the optimum.
+The maximum-deviation target is sensitive to the single most perturbed action entry.
+The alternative targets are monotone in the same deviation as Eq.~\ref{eq:target} but do not share its units.
+Cross-target magnitude comparisons therefore speak to practical signal availability rather than to unit-identical quantities.
+Section~\ref{sec:targets-results} evaluates all three.
+
+\subsection{Per-Step Episode Attribution}
+
+RDT outputs action chunks of 64 steps, subsampled $4\times$ to 16 environment steps.
+We run IG once per \emph{policy call}, not per environment step, because the chunk is the atomic unit of decision.
+Per-call attribution costs about one minute per decision on RDT-170M at $m{=}64$.
+Attributing every environment step would multiply that cost by the 16 subsampled steps per chunk and put a full pass beyond practical budgets.
+The per-call choice is what makes full-episode evaluation tractable.
+
+At each policy call we compute three independent attributions through modality-specific forward functions.
+\begin{itemize}
+\item \textbf{Vision.} Freeze language and state and interpolate the adapted image tokens from the baseline to the real observation.
+\item \textbf{Language.} Freeze vision and state and interpolate the adapted language tokens from a minimal two-token baseline encoded through T5-XXL to the real instruction embedding.
+\item \textbf{State.} Freeze vision and language and interpolate the 128-dimensional unified state vector (eight active dimensions for the Franka arm, namely seven joints plus the gripper) from zeros to its real value. The state-adaptor MLP sits inside the forward function to preserve per-joint structure.
+\end{itemize}
+Algorithm~\ref{alg:perstep} summarizes the procedure.
+
+\begin{algorithm}[t]
+\caption{Per-step IG for diffusion-policy VLAs.}
+\label{alg:perstep}
+\textbf{Input.} Policy $\pi_\theta$, environment $\mathcal{E}$, integration steps $m$, target $y \in \{\log\pi, \ell_2, \mathrm{maxdev}\}$\\
+\textbf{Output.} Attributions $\{A_t^V, A_t^L, A_t^S\}$ at every policy call.
+\begin{algorithmic}[1]
+\STATE $o_0 \leftarrow \mathcal{E}.\text{reset}()$
+\FOR{policy call $t = 0, 1, \ldots$}
+    \STATE Encode $o_t$ into vision $v_t$, language $l_t$, state $s_t$
+    \STATE Compute $a_t \leftarrow \pi_\theta(o_t)$ with fixed seed, no grad
+    \STATE Define $F$ from $a_t$, the denoised mean $\mu_t$, and the chosen target
+    \FOR{modality $M \in \{V, L, S\}$}
+        \STATE Set baseline $x'_M$, input $x_M$
+        \STATE Freeze the other two modalities
+        \STATE $A_t^M \leftarrow \text{IG}(F_M, x_M, x'_M, m)$ \hfill Eq.~\ref{eq:riemann}
+    \ENDFOR
+    \STATE Record $A_t^V, A_t^L, A_t^S$ and completeness errors
+    \STATE Apply action chunk and advance $\mathcal{E}$ by 16 steps
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Baseline selection.}
+The vision baseline is a uniform gray image in the external-camera slot only.
+The remaining five camera slots carry constant background images and are frozen at their real values, so IG attributes only to the informative slot.
+The language baseline is a minimal two-token sequence (the tokenizer's padding and end-of-sequence tokens, since T5 has no beginning-of-sequence token) encoded through T5-XXL rather than a zero vector.
+The encoder output is zero-padded to the stored embedding length, and the language forward passes attend over the task's real token span, so the attended baseline is the encoded token pair followed by zero vectors at the remaining attended positions.
+A zero vector is numerically safe through the GELU-based language adaptor but is semantically degenerate, and it roughly doubled the completeness error in preliminary single-step tests.
+The state baseline is a zero vector in the normalized joint space, a numerically safe choice that keeps per-joint attributions readable.
+Section~\ref{sec:anchoring} quantifies sensitivity to the vision baseline choice.
+
+\subsection{Evaluation Protocol}
+\label{sec:metrics}
+
+We evaluate along three axes against fixed quantitative bars.
+The metrics follow \citeauthor{sundararajan2017axiomatic}~\shortcite{sundararajan2017axiomatic}, \citeauthor{petsiuk2018rise}~\shortcite{petsiuk2018rise}, and \citeauthor{adebayo2018sanity}~\shortcite{adebayo2018sanity}.
+The numeric bars are pre-specified targets set for this study before the runs, not community standards.
+The AUC bars sit on the far side of the roughly 0.5 value that a random ranking yields under the rescaling defined below.
+Reported 95\% intervals are episode-resampled percentile bootstrap intervals with $B{=}10{,}000$ draws and a fixed resample seed, computed by the released interval scripts, so correlated rows within an episode stay together.
+
+\paragraph{Correctness.}
+We measure the completeness error
+\begin{equation}
+\text{Err} = \frac{\left| \sum_i \mathrm{IG}_i - (F(x) - F(x')) \right|}{\left| F(x) - F(x') \right|}
+\end{equation}
+per modality at every policy call.
+Completeness is evaluated per modality, with the other two modalities frozen, rather than as one joint sum over all modalities, because each modality has its own forward function and baseline.
+The bars are a median error at or under 3\% and at least 90\% of cases at or under 3\%.
+
+\paragraph{Faithfulness.}
+We run two perturbation tests.
+\emph{Top-$k$ deletion} ranks inputs by $|\mathrm{IG}|$, replaces the top $k\%$ with the baseline for $k \in \{1, 5, 10\}$, and measures $\Delta F = F(\text{deleted}) - F(\text{original})$, which should be negative.
+The bar at $k{=}5\%$ is $\Delta\log\pi \leq -0.5$ nats.
+\emph{Insertion/deletion AUC}~\cite{petsiuk2018rise} progressively inserts tokens starting from the baseline, or deletes them starting from the input, in IG-ranked order over $k \in \{0, 1, 5, 10, 20, 30, 50, 75, 100\}\%$.
+We compute the AUC after rescaling $F$ so that the full input maps to 1 and the baseline to 0.
+The ranked units are the 729 external-camera patch tokens for vision and the real instruction tokens for language.
+The bars are vision insertion at or above 0.60 and deletion at or below 0.40, and language insertion at or above 0.55 and deletion at or below 0.45.
+The nat scale of $\Delta\log\pi$ is set by the target's normalization conventions, namely $\sigma^2{=}1$ and the per-entry mean over $D$.
+An alternative sum-form convention without the $1/D$ factor would scale every reported $\Delta\log\pi$ by $D{=}512$ (Section~\ref{sec:contraction}).
+The magnitude bar applies to the target as implemented, and every comparison in this paper holds these conventions fixed.
+
+\paragraph{Sanity.}
+\emph{C1 (model randomization)} re-initializes model weights with Xavier-uniform draws and re-runs IG.
+Attributions should decorrelate from the original, with Spearman $\rho \leq 0.2$.
+We run three variants of increasing strictness.
+The standard variant re-initializes the output projection of the final action layer and recomputes the target under the perturbed model.
+The frozen-target variant re-initializes the same projection but keeps the original model's reference action, which is the strict form of the test.
+The cascade variant re-initializes every backbone weight matrix and positional embedding (107 tensors) with the frozen target.
+\emph{C2 (input randomization)} applies a deterministic pixel permutation to the external-camera image and a post-encoding token-order shuffle to the language embedding, then re-runs IG with the same $\rho \leq 0.2$ bar.
+C1 follows the model-randomization test of \citeauthor{adebayo2018sanity}~\shortcite{adebayo2018sanity}, while C2 is an inference-time input-randomization check in the same spirit.
+Correlations are computed over the 729 external-camera patch scores for vision, the real instruction tokens for language, and the eight active state dimensions.
+All sanity re-runs compute the perturbed attribution at $m{=}16$ on the first 50 steps of each task-seed base run and correlate it against that run's original $m{=}64$ attribution.
+The standard C1 and C2 rows use the main pass as the base run, while the frozen and cascade variants use the regeneration run described in Section~\ref{sec:setup}.
+The standard C1 result ($\rho \approx 0.95$, Section~\ref{sec:sanity}) doubles as a control showing that the $m$ budget mismatch alone does not decorrelate attributions.
+The stored attribution sidecars did not encode the integration budget in their filenames, and the $m{=}128$ extension ran concurrently with the variant stages on PegInsertionSide and PickSingleYCB.
+Some frozen-target and cascade rows for those two tasks may therefore correlate against $m{=}128$ attributions rather than $m{=}64$ ones.
+The standard C1 control bounds the budget effect, and no verdict depends on this ambiguity.
+
+\paragraph{Baseline sensitivity.}
+For the vision modality we recompute IG under three baselines per step (black, gray, and a Gaussian blur of the actual observation) and report pairwise Spearman correlations of the patch rankings.
+
+%% ================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Models.}
+RDT-170M~\cite{liu2024rdt} (14 DiT layers, 1024-dim hidden) is the primary model, used with pretrained-only weights.
+This is deliberate.
+A policy without task-specific fine-tuning exercises the attribution machinery on realistic failure behavior, and its near-zero task success (1 success in 400 episodes) supplies the failure side of the qualitative analysis.
+RDT-1B (28 layers, 2048-dim) serves as the scale check on PickCube with the original authors' fine-tuned weights, a checkpoint that can solve the task.
+An initial scale-check run produced 7/20 successes.
+A re-run of the same checkpoint for the faithfulness evaluation, on the follow-up machine and under the deviations recorded below, produced 9/20.
+A Month 5 reproduction run of the same checkpoint and seeds with real T5-XXL embeddings on a third machine produced 8/20 successes, with vision faithfulness medians inside the episode bootstrap intervals of the committed run (insertion 0.919 against 0.926 and deletion 0.264 against 0.248), and its records are committed.
+
+\paragraph{Tasks.}
+We evaluate on four ManiSkill3~\cite{tao2024maniskill3} manipulation tasks with a simulated Franka Panda 7-DoF arm.
+PickCube-v1 grasps a cube and lifts it to a target.
+StackCube-v1 stacks a red cube on a green cube.
+PegInsertionSide-v1 inserts a peg into a hole from the side.
+PickSingleYCB-v1 grasps a YCB object.
+Each task is conditioned on a natural-language instruction encoded offline through T5-XXL.
+Tables abbreviate PegInsertionSide-v1 and PickSingleYCB-v1 as PegInsertion and PickYCB.
+We record five protocol deviations up front.
+The run campaigns are labeled by project month, Month 4 through Month 6, and the released records and data README use the same labels.
+The original task list named OpenDrawer, which exists only as a Fetch-mobile-manipulator variant in the installed ManiSkill3, so it was dropped.
+PickSingle does not exist under that name, so the published PickSingleYCB-v1 was substituted.
+A fifth task, TurnFaucet-v1, was attempted as an articulation substitute and dropped during the pass.
+Its reference-action norms declined steadily from the first step toward the signal threshold, the opposite of every other task, and the run was producing no successes for its pod cost.
+The Month 4 follow-up machine could not host T5-XXL, so every follow-up run on it loaded the authors' precomputed instruction embeddings and a zeroed placeholder in place of the encoded two-token language baseline.
+The affected language numbers are the seed 42 RDT-1B language values reported with Table~\ref{tab:faithfulness}, the variant language correlations in Table~\ref{tab:sanity}, and the regeneration-run language distributions in Figure~\ref{fig:completeness}, so comparisons between them and main-pass language numbers span two baselines, while the vision and state baselines are unchanged.
+The Month 6 runs at seeds 142 and 242 encoded their instruction embeddings and the two-token language baseline with T5-XXL on their own machine, so the pooled 1B language row in Table~\ref{tab:faithfulness} spans both language-baseline provenances.
+The follow-up PickSingleYCB runs also reused the PickCube instruction embedding because the task's own embedding was unavailable, so no per-task language metrics are tabulated from them, the PickSingleYCB language distributions in Figure~\ref{fig:completeness} carry that proxy embedding, and the pooled variant language correlations include those proxy rows.
+
+\paragraph{Protocol.}
+The full evaluation pass is 4 tasks $\times$ 2 seeds (42, 142) $\times$ 50 episodes at $m{=}64$.
+It yields roughly 1{,}900 attributed policy calls, of which 1{,}341 are signal-bearing and enter the quantitative tables.
+A step is signal-bearing when the reference action norm is at least 15.
+Quiescent steps are excluded because the completeness denominator $|F(x) - F(x')|$ is ill-conditioned when the action mean barely moves.
+Six follow-up runs extended the protocol.
+An $m{=}128$ subset covered PickCube and StackCube (2 seeds $\times$ 8 episodes) and was later extended to PegInsertionSide and PickSingleYCB at the same scope.
+A configuration fix raising the episode-step ceiling landed between the $m{=}64$ pass and all later runs.
+As a result, later episodes typically run to 25 policy calls while the original $m{=}64$ episodes were shorter.
+Matched comparisons in Section~\ref{sec:budget} truncate the $m{=}128$ rows to the $m{=}64$ episode shape.
+A regeneration run repeated all four tasks at $m{=}64$ (2 seeds $\times$ 15 episodes, post-fix configuration) to supply base attributions for the variant sanity checks, the baseline study, and the target ablation.
+The target ablation re-ran PickCube at the same scope once per alternative target.
+The 1B faithfulness run covered PickCube at three evaluation seeds (42, 142, 242), 20 episodes each at $m{=}64$, with the seed 42 row kept from the earlier follow-up run and seeds 142 and 242 added later.
+A displacement run measured the action change under top-ranked deletion directly in action space on PickCube and StackCube at both model scales.
+It swept solver steps $T \in \{1, 2, 3, 5, 10, 20\}$, the denoising-step count of Section~\ref{sec:target}, and deletion fractions up to 20\% on vision and language, with rankings taken from the $T{=}5$ attributions.
+The reported vision curves pool the 1B runs over seeds 42 and 142, use seed 42 at 170M, and carry 8 to 40 episodes per curve.
+A Month 5 reproduction run repeated the 1B faithfulness with real T5-XXL embeddings.
+
+\paragraph{Hardware.}
+The main pass ran on a single RTX 4090 (24\,GB).
+The original $m{=}128$ subset (PickCube and StackCube) ran on an RTX 5090 (32\,GB, PyTorch 2.8 with CUDA 12.8).
+The $m{=}128$ extension to the other two tasks and the remaining Month 4 follow-up experiments ran on a machine with two RTX 4090s.
+The displacement measurement and the Month 5 reproduction run used a RunPod RTX PRO 6000 Blackwell (96\,GB), which hosted T5-XXL and therefore used real instruction embeddings.
+The Month 6 runs (the seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation, and the seed 142 displacement runs) ran on a second RunPod RTX PRO 6000 pod, which encoded its own T5-XXL instruction embeddings and two-token language baseline.
+T5-XXL instruction embeddings are precomputed offline, so the 4.8B-parameter encoder never resides in GPU memory during attribution.
+
+%% ================================================================
+\section{Evaluation Results}
+
+We first report the protocol results, flagging threshold misses on the deletion magnitude, the language AUCs, the completeness tail, and the state median, together with the expected C1 failure.
+Section~\ref{sec:mechanisms} isolates their causes experimentally.
+
+\subsection{Correctness}
+
+Table~\ref{tab:correctness} reports completeness error at $m{=}64$ on the main pass's signal-bearing rows, and Figure~\ref{fig:completeness} plots per-task error distributions over all policy calls of the committed regeneration run, which corroborates the main-pass protocol on released records.
+Vision and language medians cluster at 1.87 to 2.54\%, under the 3\% bar on all four tasks.
+State medians are higher, at 4.53 to 7.46\%, because the state vector's eight active dimensions accumulate per-dimension Riemann error and its small target gaps amplify the percentage.
+The 90\%-of-cases bar is missed at $m{=}64$.
+Vision pass rates land at 59.9 to 75.8\% and language at 67.0 to 75.0\%, because the upper 24 to 40\% of rows carry Riemann error above 3\%.
+Section~\ref{sec:budget} shows this tail is an integration-budget effect on the smooth tasks.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}l r rr r rr r rr@{}}
+\toprule
+ & & \multicolumn{2}{c}{\textbf{Vision}} & & \multicolumn{2}{c}{\textbf{Language}} & & \multicolumn{2}{c}{\textbf{State}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){6-7} \cmidrule(lr){9-10}
+Task & $n$ & med & $\leq$3\% && med & $\leq$3\% && med & $\leq$3\% \\
+\midrule
+PegInsertion & 425 & 2.11 & 75.8 && 1.95 & 73.9 && 4.70 & 37.9 \\
+\rowcolor{gray!6}
+PickCube & 264 & 2.02 & 68.6 && 2.08 & 67.0 && 5.12 & 34.8 \\
+PickYCB & 348 & 2.06 & 69.8 && 2.06 & 67.8 && 4.53 & 36.5 \\
+\rowcolor{gray!6}
+StackCube & 304 & 2.54 & 59.9 && 1.87 & 75.0 && 7.46 & 25.3 \\
+\bottomrule
+\end{tabular}
+\caption{Completeness error (\%) at $m{=}64$ on RDT-170M, signal-bearing rows ($|$ref action$| \geq 15$). The ``med'' column is the median error. The ``$\leq$3\%'' column is the fraction of rows at or under the 3\% bar.}
+\label{tab:correctness}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_a_completeness.png}
+\caption{Completeness error distributions by task and modality over all policy calls of the committed regeneration run at $m{=}64$ (2 seeds $\times$ 15 episodes per task), with $m{=}128$ overlays on the PegInsertionSide and PickSingleYCB panels and the seed 42 RDT-1B scale-check rows overlaid on the PickCube panel. Vision and language mass concentrates at low error with tails extending past the 3\% line. State shows a longer right tail. The PickSingleYCB language histograms reflect the proxy PickCube instruction embedding recorded in Section~\ref{sec:setup}. All language distributions in this figure come from runs that used the zeroed language baseline recorded in Section~\ref{sec:setup}. Errors are clipped at 0.5 (50\%) for display, so the rightmost bin pools all larger errors.}
+\label{fig:completeness}
+\end{figure}
+
+\subsection{Faithfulness}
+\label{sec:faithfulness}
+
+Table~\ref{tab:faithfulness} reports faithfulness at $m{=}64$ on the same signal-bearing population, with the RDT-1B scale check in the bottom block.
+Vision insertion AUC ranges from 0.792 to 0.866 against a 0.60 bar.
+Vision deletion AUC ranges from 0.290 to 0.345 against a 0.40 bar.
+Both pass on all four tasks.
+Inserting highly attributed patches rapidly recovers the target and deleting them degrades it, so the attribution ranks the right pixels.
+Figure~\ref{fig:auc} shows the aggregated insertion and deletion curves.
+Language AUCs are mixed, with insertion between 0.344 and 0.504.
+Each instruction tokenizes to only 16 to 30 tokens, so a top-1\% deletion already removes a full token and the $k$-grid is coarse relative to the sequence length.
+The pretrained-only policy itself compounds this, since on the fine-tuned 1B the language deletion AUC improves to passing and the insertion AUC improves but passes at only two of the three seeds (Table~\ref{tab:faithfulness}, bottom block), though that comparison spans the language-baseline deviation recorded in Section~\ref{sec:setup}.
+
+\begin{table}[t!]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}ll r r rr@{}}
+\toprule
+\textbf{Task} & \textbf{Mod.} & $\boldsymbol{n}$ & $\boldsymbol{\Delta\log\pi}$ & \textbf{Ins} & \textbf{Del} \\
+\midrule
+PegInsertion & Vision & 425 & $-$0.0018 & \textbf{0.792} & \textbf{0.290} \\
+& Lang. & 425 & $-$0.0039 & 0.344 & \textbf{0.249} \\
+\midrule
+\rowcolor{gray!6}
+PickCube & Vision & 264 & $-$0.0032 & \textbf{0.856} & \textbf{0.317} \\
+\rowcolor{gray!6}
+& Lang. & 264 & $-$0.0004 & 0.504 & 0.477 \\
+\midrule
+PickYCB & Vision & 348 & $-$0.0013 & \textbf{0.843} & \textbf{0.345} \\
+& Lang. & 348 & $-$0.0003 & 0.368 & 0.477 \\
+\midrule
+\rowcolor{gray!6}
+StackCube & Vision & 304 & $-$0.0039 & \textbf{0.866} & \textbf{0.336} \\
+\rowcolor{gray!6}
+& Lang. & 304 & $-$0.0016 & 0.378 & 0.539 \\
+\midrule
+\midrule
+RDT-1B s42 & Vision & 320 & $-$0.00016 & \textbf{0.926} & \textbf{0.248} \\
+RDT-1B s142 & Vision & 480 & $-$0.00012 & \textbf{0.937} & \textbf{0.293} \\
+RDT-1B s242 & Vision & 399 & $-$0.00018 & \textbf{0.954} & \textbf{0.314} \\
+\rowcolor{gray!6}
+RDT-1B pool & Vision & 1{,}199 & $-$0.00015 & \textbf{0.940} & \textbf{0.288} \\
+\rowcolor{gray!6}
+RDT-1B pool & Lang. & 1{,}199 & $-$0.00012 & 0.541 & \textbf{0.267} \\
+\bottomrule
+\end{tabular}
+\caption{Faithfulness at $m{=}64$. $\Delta\log\pi$ is the median target change after top-5\% deletion, in nats. Bold AUC values pass their bars (vision insertion $\geq$0.60 and deletion $\leq$0.40, language $\geq$0.55 and $\leq$0.45). The top block is RDT-170M with both seeds on signal-bearing rows ($|$ref action$| \geq 15$). The bottom block is the RDT-1B scale check with the authors' fine-tuned weights on three evaluation seeds (42, 142, 242, with 9, 1, and 5 of 20 successes), on all policy-call rows per seed. The signal filter is inapplicable at 1B because the fine-tuned policy's action norms sit below 15 throughout. The seed 42 language values were computed against the zeroed language baseline recorded in Section~\ref{sec:setup}, while the seed 142 and 242 runs encoded their instruction embeddings and the two-token baseline with T5-XXL on their own machine, so the pooled language row spans the two language-baseline provenances. The vision rows are unaffected by that difference. The three vision rows show the cross-scale vision result is robust to the evaluation seed, passing both bars at every seed. The pooled vision 95\% episode bootstrap interval is 0.926 to 0.954 for insertion and 0.250 to 0.312 for deletion. Language insertion is seed-sensitive. It is 0.562, 0.583, and 0.519 at the three seeds, so it passes the 0.55 bar at two of the three seeds, and the pooled value 0.541 sits just under the bar with a 95\% interval of 0.449 to 0.605 that straddles it. We therefore report the language insertion pass as seed-sensitive rather than robust, while the vision verdicts and the language deletion pass hold at every seed. These are evaluation seeds on one checkpoint, so they measure rollout and sampling variance, not generalization across training initializations.}
+\label{tab:faithfulness}
+\end{table}
+
+The $\Delta\log\pi$ magnitudes are the protocol's clearest miss.
+They sit at a few $10^{-3}$ nats or below at $k{=}5\%$ on every task and modality, at least two orders of magnitude under the 0.5-nat bar in the per-entry convention of Eq.~\ref{eq:target}.
+The natural suspicion is the weak policy, and the 1B experiments behind the bottom block of Table~\ref{tab:faithfulness} were run to test exactly that.
+They show the opposite (Section~\ref{sec:contraction}).
+Across three evaluation seeds the fine-tuned policy passes both vision bars and the language deletion bar at every seed, while its pooled vision deletion magnitude shrinks by a further 20$\times$ (language by roughly 3$\times$).
+The one seed-marginal case is language insertion, which passes at two of the three seeds while its pooled value sits just under its bar, so we read that pass as seed-sensitive rather than robust.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_c_auc_curves.png}
+\caption{Normalized insertion (higher is better) and deletion (lower is better) curves over the token-fraction grid, aggregated per modality over all faithfulness rows, including the $m{=}128$ subset, which is a broader population than Table~\ref{tab:faithfulness}. The legend's $m{=}64$ label comes from the file tagging in the released notebook and does not describe the pooled population.}
+\label{fig:auc}
+\end{figure}
+
+\subsection{Sanity Checks}
+\label{sec:sanity}
+
+Table~\ref{tab:sanity} reports Spearman correlations between original and perturbed attributions.
+C2 (input randomization) passes for vision on all four tasks, with $\rho$ from 0.091 to 0.166, and for language on three of four.
+StackCube sits at 0.240, which is borderline, because its instruction repeats the content tokens naming the two cubes, with \emph{cube} appearing three times alongside \emph{red} and \emph{green}, and a position shuffle is less destructive there.
+State C2 stays high by construction, at 0.667 to 0.810, because shuffling camera pixels does not perturb the proprioceptive input that drives state attribution.
+
+C1 (model randomization) does not pass in any variant.
+The standard variant lands at $\rho$ from 0.903 to 0.970 on vision and language.
+The strict frozen-target variant eliminates the possibility that the correlation is an artifact of the target moving with the perturbed model, yet it barely moves the vision correlation ($\rho = 0.929$).
+Even re-initializing the entire backbone leaves $\rho = 0.713$.
+Section~\ref{sec:anchoring} shows this is a property of input-multiplied attribution methods rather than a defect of the pipeline, and explains why C2 is the check that carries discriminative weight.
+
+\begin{table}[t!]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}ll rrr@{}}
+\toprule
+\textbf{Task} & \textbf{Check} & $\boldsymbol{\rho}$\textbf{\,Vision} & $\boldsymbol{\rho}$\textbf{\,Lang.} & $\boldsymbol{\rho}$\textbf{\,State} \\
+\midrule
+PegInsertion & C1 & 0.953 & 0.950 & 0.786 \\
+& C2 & \textbf{0.091} & \textbf{0.002} & 0.667 \\
+\midrule
+\rowcolor{gray!6}
+PickCube & C1 & 0.937 & 0.903 & 0.750 \\
+\rowcolor{gray!6}
+& C2 & \textbf{0.160} & \textbf{0.087} & 0.810 \\
+\midrule
+PickYCB & C1 & 0.918 & 0.917 & 0.714 \\
+& C2 & \textbf{0.166} & \textbf{0.141} & 0.762 \\
+\midrule
+\rowcolor{gray!6}
+StackCube & C1 & 0.953 & 0.970 & 0.667 \\
+\rowcolor{gray!6}
+& C2 & \textbf{0.157} & 0.240 & 0.786 \\
+\midrule
+\midrule
+\multicolumn{2}{@{}l}{C1 frozen (pooled)} & 0.929 & 0.862 & 0.643 \\
+\multicolumn{2}{@{}l}{C1 cascade (pooled)} & 0.713 & 0.910 & 0.643 \\
+\bottomrule
+\end{tabular}
+\caption{Sanity checks (Spearman $\rho$, where bold passes the $\leq$0.2 bar). The per-task rows are the standard C1 (final-layer re-init, moving target) and C2 (input shuffle) on signal-bearing rows ($n$ = 67/62/85/75 per task). The bottom block holds the strict frozen-target and full-backbone cascade C1 variants, pooled over all four tasks and both seeds ($n{=}400$ each, no signal filter). Perturbed attributions are computed at $m{=}16$ (Section~\ref{sec:metrics}). The variant rows correlate against the regeneration run and carry the language-baseline and embedding-proxy deviations recorded in Section~\ref{sec:setup}. The released interval tables give a 95\% episode bootstrap interval of 0.906 to 0.940 for the pooled frozen vision median.}
+\label{tab:sanity}
+\end{table}
+
+\subsection{Qualitative Analysis}
+\label{sec:qualitative}
+
+Figure~\ref{fig:overlays} shows six representative vision overlays from a single checkpoint, the fine-tuned RDT-1B on PickCube at evaluation seed 242.
+The top row is three successes and the bottom row is three failures, taken as the first three of each by episode index rather than hand-picked, with a representative mid-trajectory step shown per episode.
+In the success panels, attribution concentrates on the target cube and the gripper's approach vector.
+In the failure panels, the attribution pattern is mixed, with some panels scattering attribution across the scene and others concentrating on task objects despite the failed outcome.
+Because both rows come from the same checkpoint and the same run, this is a controlled within-checkpoint contrast rather than a cross-checkpoint one, and it shows that attribution placement alone does not separate success from failure here.
+
+In inspected examples, the per-step language attribution bars peak on the content tokens that name the target object, such as \emph{red} and \emph{cube} on PickCube.
+Section~\ref{sec:anchoring} bounds how much of this token-level structure is model-dependent.
+Language rankings survive even full-backbone randomization at $\rho = 0.910$, so token bars locate the inputs that anchor the attribution but do not by themselves certify grounding by the trained model.
+
+An annotation pipeline tags 16 representative steps (2 successes from the 1B run and 14 failures from 170M across all four tasks) into five categories.
+The categories are assigned algorithmically from the per-modality completeness signature of each row.
+They are vision mis-focus, language mis-grounding, state misreading, delayed credit, and success-well-grounded.
+The selection is stratified, with representative rows per category and task, so it catalogs the failure modes the signatures can distinguish rather than measuring their prevalence.
+The overlay grid and the annotation set both deviate from the original protocol's two-successes-per-task composition, which the 1-in-400 success rate makes unsatisfiable.
+In total the overlay pipeline emitted 3{,}881 PNG artifacts (per-step overlays, token bars, episode summaries, and combined three-panel figures) across the full pass.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/fig_b_overlays_grid.png}
+\caption{Per-step vision IG overlays from a single checkpoint, the fine-tuned RDT-1B on PickCube at evaluation seed 242, where warm colors indicate high attribution. The top row is three successes and the bottom row is three failures, taken as the first three of each by episode index, with a representative mid-trajectory step per episode. Successful episodes often concentrate attribution on the target object and the gripper. The failure panels are mixed, some scattering attribution across the scene and some staying on task objects, so attribution placement alone does not separate success from failure in these examples. Because both rows come from the same checkpoint and run, this is a controlled within-checkpoint contrast.}
+\label{fig:overlays}
+\end{figure*}
+
+%% ================================================================
+\section{From Misses to Mechanisms}
+\label{sec:mechanisms}
+
+The language AUC miss is accounted for by the token-grid coarseness and the 1B improvement in Section~\ref{sec:faithfulness}, and the state median miss by the per-dimension error accumulation noted with Table~\ref{tab:correctness}, which leaves three open items.
+Deletion magnitudes sit far below the 0.5-nat bar.
+C1 correlations sit far above the 0.2 bar.
+The completeness pass rate sits below the 90\% bar.
+This section reports three targeted experiments that turn each into either an explained property of the model class or a budget effect, and one that recovers the missing magnitude signal.
+
+\subsection{Deletion Magnitudes Do Not Track Policy Competence}
+\label{sec:contraction}
+
+The natural first hypothesis for the $\Delta\log\pi$ miss is policy weakness.
+A pretrained-only 170M produces near-constant action chunks, so deleting a few tokens cannot move the action mean far.
+If that were the cause, a policy that actually solves the task would show larger deletion magnitudes.
+We therefore ran the full faithfulness protocol on RDT-1B with the authors' fine-tuned weights on PickCube at three evaluation seeds (20 episodes each, with 9, 1, and 5 successes, 1{,}199 pooled policy-call rows, with the signal filter inapplicable here as noted in Table~\ref{tab:faithfulness}).
+
+The result refutes the hypothesis (Table~\ref{tab:faithfulness}, bottom block, and Figure~\ref{fig:scale}).
+Every ranking-based score improves on the competent policy.
+Pooled over the three seeds, vision insertion rises from 0.856 to 0.940 and vision deletion falls from 0.317 to 0.288, both robustly past their bars at every seed. Language deletion moves from failing (0.477) to passing (0.267), while language insertion improves from 0.504 to a pooled 0.541 that still sits just under its 0.55 bar and passes at only two of the three seeds.
+The deletion magnitude moves the other way.
+$\Delta\log\pi$ at $k{=}5\%$ shrinks from $-$0.0032 to a pooled $-$0.00015 nats on vision and from $-$0.0004 to a pooled $-$0.00012 on language.
+The language comparison spans the baseline deviation recorded in Section~\ref{sec:setup}, while the vision comparison does not.
+
+The explanation is the readout, not the denoiser.
+We measured the action displacement directly by deleting the top-ranked tokens and re-running the policy across solver-step counts, across both model scales, and on two tasks (Figure~\ref{fig:displacement}).
+Three facts follow.
+The deleted action does move, with median relative displacements of 4.4 to 8.5\% of the action norm at top-5\% vision deletion under the production five-step chain, so the action is not held fixed by the chain.
+Between the two-step and twenty-step endpoints the displacement does not progressively contract on any curve, with endpoint changes from $-$2.3 to $+$22.2\%.
+The PickCube 1B curve rises by 15\%, the 170M curves stay roughly flat in relative terms, and the two StackCube curves dip at intermediate steps before rising again by step twenty.
+The iterative denoiser therefore does not pull the perturbation back with solver depth.
+The single-step chain at $T{=}1$ sits above the two-step value on every curve, so the only contraction in the data is the gap between one-step and iterative solving rather than a pullback that deepens with iteration depth.
+The cross-scale magnitude gap is a regime effect, not evidence of robustness.
+The fine-tuned 1B operates at a roughly 3$\times$ smaller action norm, and at the matched top-5\% deletion fraction its relative displacement is at least as large as the 170M value at every solver-step count, with PickCube medians of 8.5\% against 5.1\% at $T{=}5$.
+The 1B displaces relatively more, which rules out any reading where the stronger policy resists the perturbation, and the non-overlapping action-norm regimes preclude a controlled cross-scale robustness comparison.
+The small $\Delta\log\pi$ therefore comes from the readout.
+The log-density reads the squared displacement averaged over the $D{=}512$ active entries, so a 170M-scale move of 5\% of the action norm becomes a magnitude near $10^{-3}$ nats by construction.
+The linear-readout $\ell_2$ target in Section~\ref{sec:targets-results} reports this same displacement directly without the quadratic per-entry averaging, which is why it recovers a usable magnitude.
+The absolute scale of $\Delta\log\pi$ also depends on the normalization convention (Section~\ref{sec:metrics}).
+Under the sum-form target $-\frac{1}{2\sigma^2}\lVert a_t - \mu_t \rVert^2$, without the $1/D$ factor, every reported value scales by $D{=}512$, which would put the 170M vision magnitudes at roughly $-$0.7 to $-$2.0 nats (above the 0.5 bar) and the 1B value near $-$0.08 (below it).
+The convention is identical across the 170M and 1B runs, so the cross-scale direction is unaffected, but any fixed magnitude bar is meaningful only relative to a stated convention.
+The practical consequence is a measurement rule.
+For diffusion policies, magnitude-based faithfulness bars inherited from classifier evaluation do not transfer to a log-density target.
+The magnitude shrank as the policy improved in our cross-scale comparison, and its relation to any fixed bar depends on the normalization convention.
+Ranking-based insertion/deletion metrics remain discriminative and well-behaved.
+We state the scope plainly.
+The cross-scale displacement evidence is observational and comes from two tasks at two seeds at 1B scale and one seed at 170M, with 8 to 40 episodes per curve, and the faithfulness scale check covers one task at three seeds.
+The 1B rows are also unfiltered, because the fine-tuned policy operates below the signal threshold throughout, which is a population difference from the 170M block.
+The seed 42 1B run also carries the embedding provenance change recorded in Section~\ref{sec:setup}, and the seed 142 and 242 runs used embeddings encoded on their own machine.
+Even so, the direction of the effect admits no weak-policy reading, since the vision magnitude shrinks by 20$\times$ while every AUC improves.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_1b_vs_170m.png}
+\caption{Faithfulness AUCs for RDT-170M and RDT-1B on PickCube, with populations as in Table~\ref{tab:faithfulness}. The drawn reference lines are the vision bars (insertion 0.60, deletion 0.40). The language bars are 0.55 and 0.45. The plotted column heights are the pooled three-seed 1B values. The fine-tuned 1B moves all four AUCs in the faithful direction and passes both vision bars and the language deletion bar at every seed, while its deletion log-density magnitude shrinks (Table~\ref{tab:faithfulness}). Language insertion is the one seed-sensitive case, with a pooled value of 0.541 just under its 0.55 bar. The change that carries the argument, the vision AUCs improving while the deletion magnitude falls, points to the per-entry quadratic log-density readout rather than policy weakness as the cause of small $\Delta\log\pi$.}
+\label{fig:scale}
+\end{figure}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_displacement_vs_T.png}
+\caption{Action displacement under top-5\% vision deletion as a function of DPM-Solver++ steps and model scale, on PickCube and StackCube. Top, the absolute displacement, where the 170M sits well above the 1B. Bottom, the displacement relative to the action norm, where every curve lies between roughly 4 and 10\% across the full solver-step sweep and the 1B curves sit at or above the 170M curves at matched solver steps. Between the two-step and twenty-step endpoints the displacement does not progressively contract on any curve, with endpoint changes ranging from $-$2.3 to $+$22.2\% and intermediate dips on the StackCube curves, while the single-step point sits above the two-step value on every curve. The deletion therefore moves the action at both scales, so the small deletion log-density is a readout artifact rather than denoiser contraction. Bands are 95\% episode bootstrap intervals over 8 to 40 episodes per curve, with the 1B curves pooled over two evaluation seeds (42 and 142).}
+\label{fig:displacement}
+\end{figure}
+
+\subsection{A Target Ablation Recovers the Magnitude Signal}
+\label{sec:targets-results}
+
+If the quadratic log-density is structurally flat under perturbation, a target with non-vanishing gradients near the reference should recover signal.
+Table~\ref{tab:targets} compares the three targets of Sections~\ref{sec:target} and~\ref{sec:targets} on PickCube (both seeds, $m{=}64$).
+
+\begin{table}[t!]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l rrr rrrr@{}}
+\toprule
+ & \multicolumn{3}{c}{\textbf{Completeness}} & \multicolumn{4}{c}{\textbf{Faithfulness}} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-8}
+\textbf{Target} & med err & $\leq$3\% & $n$ & $\Delta F$@5 & \textbf{Ins} & \textbf{Del} & $n$ \\
+\midrule
+$\log\pi$ & \textbf{1.86} & 76.8 & 699 & $-$0.0014 & \textbf{0.883} & 0.448 & 750 \\
+\rowcolor{gray!6}
+$\ell_2$ & 4.73 & 10.7 & 721 & $-$1.2299 & \textbf{0.755} & \textbf{0.284} & 774 \\
+maxdev & 6.67 & 10.9 & 713 & $-$0.1562 & \textbf{0.723} & \textbf{0.273} & 765 \\
+\bottomrule
+\end{tabular}
+\caption{Target ablation on PickCube (RDT-170M, $m{=}64$, both seeds, vision modality). The ``med err'' column is the median completeness error (\%). The $\Delta F$@5 column is the median target change under top-5\% deletion, in each target's own units. Bold marks values that pass their bars (3\% median, with AUC bars as in Table~\ref{tab:faithfulness}). The completeness columns come from the regeneration run and the matching ablation re-runs of Section~\ref{sec:setup} (2 seeds $\times$ 15 episodes, post-fix episode length) restricted to signal-bearing rows ($n{\approx}700$). This is a different population from Table~\ref{tab:correctness}'s $n{=}264$, so the $\log\pi$ pass rate here (76.8\%) is not comparable cell-for-cell with Table~\ref{tab:correctness} (68.6\%). The $\ell_2$ and maxdev faithfulness columns are computed over all rows of the same re-run. Restricting them to signal-bearing rows changes each value by at most 0.013 and changes no verdict. The $\log\pi$ faithfulness entries come from a $\log\pi$ run on the same re-run population as the $\ell_2$ and maxdev columns ($n{\approx}750$), so all three targets sit on one population. On this harder 0-success regeneration population the $\log\pi$ deletion AUC is 0.448 and misses the 0.40 bar, with a 95\% interval of 0.408 to 0.504, while $\ell_2$ and maxdev pass it. The alternative targets therefore rank at least as well here while also recovering the magnitude signal. The $\ell_2$ and maxdev $n$ counts retain the resume-replay duplicate rows documented in the released data README. Removing them brings every population to $n{=}699$ and $n{=}750$, shifts the pass-rate columns by at most 0.1 points and every other faithfulness value by at most 0.004, and changes no verdict.}
+\label{tab:targets}
+\end{table}
+
+The raw $\ell_2$ target delivers $\Delta F$ at $k{=}5\%$ of $-$1.23, which is 2.5$\times$ the 0.5 magnitude bar in absolute value.
+Its AUCs remain faithful, with insertion at 0.755 and deletion at 0.284, both passing.
+The maximum-deviation target improves the magnitude by roughly 110$\times$ over $\log\pi$ on this matched population but falls short of the bar.
+On the same matched population the $\log\pi$ deletion AUC misses its 0.40 bar, at 0.448 with a 95\% interval of 0.408 to 0.504, while both alternative targets pass it, so the main-pass deletion verdict does not carry over to this harder 0-success population.
+The units caveat from Section~\ref{sec:targets} applies strongly here.
+The bar was defined for $\Delta\log\pi$ in nats, while the $\ell_2$ change is measured in action-space units, and the two targets are monotone transformations of the same displacement.
+The comparison therefore establishes that a usable deletion signal exists under an alternative target, not that the same physical quantity crossed the same bar.
+The median completeness denominators differ by orders of magnitude across targets (0.0120 for $\log\pi$ against 3.5194 for $\ell_2$), which underscores that the scales are not interchangeable.
+
+The signal is paid for in completeness.
+The vision pass rate collapses from 76.8\% under $\log\pi$ to 10.7\% for $\ell_2$ and 10.9\% for maxdev on the same re-run.
+The median error itself also misses the 3\% bar, at 4.73\% for $\ell_2$ and 6.67\% for maxdev against $\log\pi$'s 1.86\%, so alternative-target maps are not completeness-verified at this budget.
+The cause is the same property that creates the signal.
+The square root in $\ell_2$ and the max in maxdev have gradient kinks, and the uniform Riemann sum in Eq.~\ref{eq:riemann} aliases against non-smooth integrands.
+This fattens the completeness tail at $m{=}64$ exactly as the Riemann sum's smoothness requirement predicts.
+The practical recommendation follows directly.
+Use $\log\pi$ when completeness-verified attribution maps are the product, and use $\ell_2$ when perturbation magnitude is the quantity of interest, at higher $m$ if both matter.
+Together with Section~\ref{sec:contraction}, this closes the magnitude story.
+The canonical target cannot produce the signal, the reason is structural, and a target that can is available with an explicit, measured tradeoff.
+
+\subsection{Why Model Randomization Does Not Collapse IG}
+\label{sec:anchoring}
+
+The standard C1 result ($\rho \approx 0.95$) admits a benign explanation.
+Our log-density target is recomputed under the perturbed model, so the target moves with the randomization, and gradients could stay correlated for that reason alone.
+The frozen-target variant eliminates that explanation, and the correlation persists.
+It lands at $\rho = 0.929$ on vision, essentially unchanged from the moving-target value of roughly 0.95.
+Randomizing the entire backbone (the cascade variant) degrades vision correlation only to 0.713 and leaves language at 0.910 (Figure~\ref{fig:c1}).
+Excluding the PickSingleYCB rows, which carry the embedding proxy recorded in Section~\ref{sec:setup}, moves the frozen language value from 0.862 to 0.843, moves every other frozen and cascade value by at most 0.024, and leaves the cascade language value unchanged.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_c1_variants.png}
+\caption{The model-randomization depth study. The frozen-target and cascade columns are pooled over tasks and seeds from the released runs. The standard final-layer C1 and the C2 columns are reproduced from the main-pass record, since those raw runs are not in the release (Section~\ref{sec:setup}). No C1 variant approaches the 0.2 bar. Input randomization (C2) passes it on vision. The graceful degradation with randomization depth (0.95, then 0.93, then 0.71 on vision) is the signature of input-anchored attribution.}
+\label{fig:c1}
+\end{figure}
+
+The explanation is visible in Eq.~\ref{eq:ig}.
+Every IG attribution carries the multiplicative factor $(x_i - x'_i)$, which does not depend on the model at all.
+Patch scores are dominated by the positions that differ most from the baseline.
+In the camera image these are the cube, the arm, and the goal site, and in the instruction these are the content tokens.
+Gradients, random or not, flow preferentially through high-delta positions, so the spatial ranking survives weight randomization.
+Vision degrades gracefully with randomization depth because deeper re-initialization scrambles more of the attention pattern shaping the gradient.
+Language barely degrades because token-embedding deltas dominate even more strongly there.
+This is precisely the partial model-invariance of input-multiplied methods reported by \citeauthor{adebayo2018sanity}~\shortcite{adebayo2018sanity} for classifiers, here measured across randomization depths on a diffusion-policy VLA.
+The consequence for practice mirrors Section~\ref{sec:contraction}.
+C1 with a $\rho \leq 0.2$ bar is not a meaningful pass/fail test for IG-family methods on VLAs.
+Input randomization (C2), which directly destroys the input structure the attribution is anchored to, is the check that discriminates (Table~\ref{tab:sanity}).
+The depth study also calibrates how to read the paper's own qualitative artifacts.
+Under full-backbone randomization the vision ranking retains the larger model-dependent component ($\rho = 0.713$), while the language ranking is almost entirely input-anchored ($\rho = 0.910$).
+This is why Section~\ref{sec:qualitative} treats token bars as input-locating rather than grounding evidence.
+
+Baseline sensitivity corroborates the anchoring account (Table~\ref{tab:baseline}).
+Between the two uninformative baselines (black and gray), patch rankings agree at $\rho \approx 0.82$ on both tasks tested, so the production gray choice is not load-bearing.
+Against a content-aware Gaussian-blur baseline the rankings diverge, with $\rho$ between 0.45 and 0.55.
+Blur shares spatial structure with the input, which shortens and redirects the integration path and changes the $(x - x')$ anchor itself.
+The divergence is expected under the anchoring account, and it is informative precisely because it makes the anchor visible.
+
+\begin{table}[t!]
+\centering
+\small
+\begin{tabular}{@{}l rrr@{}}
+\toprule
+\textbf{Task} & \textbf{black vs gray} & \textbf{black vs blur} & \textbf{gray vs blur} \\
+\midrule
+PickCube & 0.825 & 0.539 & 0.455 \\
+\rowcolor{gray!6}
+StackCube & 0.814 & 0.546 & 0.496 \\
+\bottomrule
+\end{tabular}
+\caption{Vision baseline sensitivity, reported as the median pairwise Spearman $\rho$ of patch rankings across baselines (the first 30 steps per task, seed 42, $m{=}64$). Uninformative baselines are interchangeable. The content-aware blur baseline shifts the IG anchor and diverges.}
+\label{tab:baseline}
+\end{table}
+
+\subsection{The Completeness Tail Is Budget-Bound on the Smooth Tasks}
+\label{sec:budget}
+
+Table~\ref{tab:m128} reports the $m{=}128$ study.
+Two comparisons must be kept apart because of the episode-length configuration change described in Section~\ref{sec:setup}.
+The matched comparison truncates $m{=}128$ rows to the $m{=}64$ episode shape.
+There, doubling $m$ lifts the PickCube vision pass rate from 68.6\% to 80.5\% and StackCube from 59.9\% to 89.8\%, with StackCube essentially reaching the 90\% bar, while medians stay near 2\%.
+The matched views are small ($n{=}41$ and $n{=}49$), so these point estimates carry wide sampling intervals.
+The full $m{=}128$ view retains every policy call of each episode, including deep mid-trajectory rows the $m{=}64$ pass never sampled.
+It is the richer dataset but not a like-for-like comparison, and its pooled pass rates (72.9\% and 62.0\%) reflect that harder row mix rather than a regression.
+The $m{=}128$ faithfulness rows behave the same way.
+Vision insertion AUC holds at 0.70 to 0.93 across the four tasks on the as-recorded rows, with the floor at 0.69 after the resume-replay deduplication documented in the released data README. The full-view deletion AUC drifts above the 0.40 bar on StackCube (0.444) and PickSingleYCB (0.415, over all rows of that run) on harder full-episode row mixes.
+
+\begin{table}[t!]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}ll rrr@{}}
+\toprule
+\textbf{Task} & \textbf{View} & $\boldsymbol{m{=}64}$ & $\boldsymbol{m{=}128}$ & $\boldsymbol{n_{128}}$ \\
+\midrule
+PickCube & matched & 68.6 & \textbf{80.5} & 41 \\
+StackCube & matched & 59.9 & \textbf{89.8} & 49 \\
+\midrule
+PickCube & full & 68.6 & 72.9 & 377 \\
+StackCube & full & 59.9 & 62.0 & 379 \\
+PegInsertion & full & 75.8 & 64.0\,/\,77.0 & 189\,/\,178 \\
+PickYCB & full & 69.8 & 73.7\,/\,71.8 & 194\,/\,195 \\
+\bottomrule
+\end{tabular}
+\caption{Vision completeness pass rate (\% of signal-bearing rows at or under 3\% error) at $m{=}64$ and $m{=}128$. The ``matched'' view truncates $m{=}128$ episodes to the $m{=}64$ episode shape (first four policy calls), which is the like-for-like comparison, and bold marks its two cells. The PickCube and StackCube cells in both the matched and full views, together with their $m{=}128$ faithfulness AUCs quoted in the text, come from the decommissioned main-pass $m{=}128$ subset and are not regenerable from the released records. The released records cover the PegInsertion and PickYCB $m{=}128$ runs only, as the reproducibility statement records. The ``full'' view keeps every call of each $m{=}128$ episode, a row mix containing deep-trajectory steps absent from the $m{=}64$ pass. PegInsertion and PickYCB are reported per seed (42\,/\,142). The PickYCB $m{=}128$ run reused the PickCube instruction embedding (Section~\ref{sec:setup}), and no language metrics are tabulated from it. The PegInsertion counts retain the resume-replay duplicate rows documented in the released data README, and removing them shifts the seed 142 PegInsertion cell from 77.0 on $n{=}178$ to 76.2 on $n{=}160$ with no verdict change.}
+\label{tab:m128}
+\end{table}
+
+The honest reading has three parts.
+First, on the smooth tasks the tail is demonstrably budget-bound.
+A matched doubling of $m$ moves the pass rate by $+$11.9 and $+$29.9 points, which is the behavior the Riemann convergence argument predicts, with medians unchanged.
+The median was never the problem.
+Second, the two later-added tasks do not move cleanly in the full view.
+PegInsertionSide lands at 64.0 to 77.0\% across seeds, straddling its 75.8\% reference, and PickSingleYCB rises modestly to 71.8 to 73.7\%.
+Their episodes are dominated by long failure trajectories whose mid-episode rows carry longer-tailed integrands, and the full-view row mix differs from the $m{=}64$ reference, so these cells are not like-for-like.
+Third, only StackCube reaches the neighborhood of the 90\% bar.
+PickCube lands at 80.5\% in the matched view and the two later-added tasks stay at 64.0 to 77.0\%, so we make no extrapolation claim about higher $m$ beyond the smooth-task evidence.
+Completeness medians of roughly 2\% with a budget-dependent tail are, in our assessment, an accurate summary of what per-step IG delivers on this model class at practical integration budgets.
+
+%% ================================================================
+\FloatBarrier
+\section{Discussion}
+
+\paragraph{What this means for evaluating attribution on diffusion policies.}
+The two mechanisms reframe how attribution quality should be measured on this model class.
+Magnitude-based faithfulness thresholds are inherited from classifier studies, where deleting salient evidence collapses the prediction.
+Under a log-density target on a diffusion policy they mislead.
+The magnitude is a quadratic per-entry readout of a small action displacement, the smaller absolute displacement at 1B reflects its smaller action-norm regime while its relative displacement is at least as large, and the magnitude's relation to any fixed bar depends on the normalization convention.
+Ranking-based insertion/deletion AUCs remain discriminative and should carry the faithfulness verdict.
+Model-randomization sanity bars calibrated for pure-gradient saliency are similarly miscalibrated for input-multiplied methods.
+Input randomization is the check that separates signal from anchor.
+The attribution target is also a design degree of freedom, not a fixed convention.
+Use the log-density for completeness-verified maps and the raw $\ell_2$ when perturbation magnitude matters.
+None of these adjustments weaken the evaluation.
+They relocate it to the metrics that actually discriminate on this model class.
+
+\paragraph{Limitations.}
+The cross-scale displacement comparison covers two tasks at two seeds at 1B scale, and the target ablation covers one task.
+Both invite replication at scale.
+The 1B evaluation seeds vary the rollouts and the sampling on one fixed checkpoint, so they bound rollout and sampling variance and not generalization across training initializations.
+The tables report medians or pooled pass rates, and rows within an episode are correlated, so row-level $n$ overstates the effective sample size.
+The 1{,}199 pooled 1B rows, for example, come from 60 episodes.
+We mitigate this by reporting per-seed values where populations differ and by scoping claims to directions and orders of magnitude.
+The tables also make many pass or fail comparisons against pre-specified bars without a multiplicity correction, and we read them as descriptive summaries rather than inferential tests.
+Episode-level bootstrap intervals accompany Figure~\ref{fig:displacement} and ship as interval tables for every released run that backs a published table, while the decommissioned runs remain without intervals.
+The distribution figures (Figures~\ref{fig:completeness} and~\ref{fig:auc}) and the in-text $m{=}128$ AUC values are not accompanied by interval tables.
+The primary evaluation deliberately uses a pretrained-only 170M policy, which exercises failure behavior but caps language-grounding effects.
+State-modality completeness misses the 3\% median bar at $m{=}64$, at 4.53 to 7.46\%, which we attribute to error accumulation over the eight active dimensions and to small completeness denominators on state rows.
+The insertion and deletion faithfulness protocol is reported for the vision and language modalities only, so the state modality carries completeness and sanity verdicts but no perturbation faithfulness AUC.
+State perturbation faithfulness is left to future work because the eight active state dimensions offer no graded deletion grid comparable to the 729 vision patches or the instruction token sequence, so state is the modality this evaluation covers least.
+The C2 language shuffle operates on post-encoding token order rather than pre-encoding text, because a T5 re-encoding was unavailable at run time.
+The shuffled embeddings cover the same vocabulary, and the check still passes on three of four tasks.
+The StackCube C2 language reading (0.240) is borderline for the stated repeated-token reason.
+The baseline-sensitivity study covers the vision modality only.
+The follow-up language attributions carry the baseline and embedding deviations recorded in Section~\ref{sec:setup}.
+The failure taxonomy is assigned algorithmically from completeness signatures rather than by human annotation, and it merges spurious-background cases into vision mis-focus and ambiguous-instruction cases into language mis-grounding.
+All results are in simulation.
+
+\paragraph{Engineering notes.}
+Three decisions proved load-bearing.
+A zero-vector language baseline is numerically safe but semantically degenerate, and the minimal two-token baseline roughly halved the completeness error relative to the zero vector in preliminary tests.
+Identical re-seeding of the diffusion noise across all $m{+}1$ forward passes is strictly necessary.
+Without it the target is stochastic, IG is undefined, and the completeness identity fails.
+Per-policy-call granularity, rather than per-environment-step, reduces full-episode attribution cost by roughly 16$\times$ and is what makes 400-episode protocols practical.
+
+\paragraph{Future directions.}
+Smoother-attribution methods~\cite{jha2021smoother,jha2022shaping} and decision-focused integration~\cite{walker2024idg} are natural fits for the $\ell_2$ target's completeness tail, since both attack exactly the non-smooth-integrand regime.
+A full 1B evaluation across more tasks would test whether the relative displacement ordering between scales persists.
+Extending the action-space displacement measurement to more tasks, more seeds, and real hardware would broaden the cross-scale evidence.
+Episode-level bootstrap intervals for the decommissioned main-pass tables would further tighten the empirical story.
+Real-robot replication would test whether the attribution patterns and both structural findings transfer outside simulation.
+
+%% ================================================================
+\section{Conclusion}
+
+We presented a per-step, per-modality Integrated Gradients framework for diffusion-policy vision-language-action models and evaluated it systematically on RDT across four ManiSkill3 tasks.
+Median completeness errors land at 1.9 to 2.5\% on vision and language, vision faithfulness AUCs pass pre-specified bars on every task in the main evaluation, and input-randomization sanity passes on vision throughout.
+Where the protocol's classifier-bred thresholds were missed, we isolated the reasons experimentally and, where possible, engineered around them.
+In our cross-scale comparison, deletion log-density magnitudes shrank rather than grew as the policy improved, which a direct measurement traces to the quadratic per-entry readout acting on a smaller-magnitude action rather than to any greater robustness.
+Model-randomization correlations persist because IG is input-anchored, which we showed across randomization depths.
+The completeness tail is integration-budget-bound on the smooth tasks, which we showed by matched $m$-doubling.
+A raw $\ell_2$ target recovers a usable deletion magnitude with an explicit completeness tradeoff.
+We read these not as failures of attribution on diffusion policies but as the measurement theory required to evaluate it honestly, and we release the pipeline code, the committed per-step metrics records, and the analysis notebooks for replication.
+
+\section*{Ethical Statement}
+
+This work analyzes pretrained robotic manipulation policies in simulation.
+No human subjects were involved.
+The interpretability methods presented here are intended to improve the transparency and safety of robotic systems.
+
+\section*{Reproducibility Statement}
+
+Per-step completeness metrics are emitted as JSONL records with one row per policy call, carrying the per-modality errors, IG sums, action norm, and wall time.
+The faithfulness and sanity post-processing stages write companion JSONL files keyed to the same steps.
+The original protocol asked for one consolidated metrics file, and this multi-file layout is a deviation from that requirement.
+The published table values apply the signal-bearing filter of Section~\ref{sec:setup}, and the matched-view and ablation columns derive from their records under the filters stated in their captions.
+Episode seeds are fixed at 42 and 142, with 242 added for the third RDT-1B evaluation seed, where episode $e$ uses seed $42{+}e$, $142{+}e$, or $242{+}e$, and the diffusion noise is seeded per forward pass.
+Single-command scripts regenerate the full pass, faithfulness, sanity, target-ablation, and displacement stages from the fixed seeds, with the exact commands as executed on the original GPUs, except for the later strengthening runs.
+The seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation runs, and the seed 142 displacement runs used the same entry points and flags at the seeds and scopes recorded in the released data README.
+The RDT-1B stages additionally require the RDT authors' ManiSkill fine-tuned checkpoint from the robotics-diffusion-transformer maniskill-model repository on Hugging Face, without which the loader falls back to the Hugging Face base weights, applying the project LoRA only when a local checkpoint exists, and neither fallback reproduces the published 1B numbers.
+The committed records are not a byte-level reproduction of every table.
+The main evaluation pass and its faithfulness records, the original $m{=}128$ PickCube and StackCube subset, the standard sanity runs, the initial RDT-1B scale-check run, the per-step attribution sidecars, and the overlay images were produced on cloud GPUs that have since been decommissioned. None of them are part of the release.
+The records we release are the regeneration run of Section~\ref{sec:setup}, which reproduces the target ablation and corroborates the main-pass protocol at a smaller episode budget.
+The release also holds the RDT-1B faithfulness records at all three evaluation seeds, the $m{=}128$ PegInsertionSide and PickSingleYCB runs, the frozen-target and cascade sanity runs, and the baseline-sensitivity and target-ablation runs including the matched-population $\log\pi$ pair.
+It further holds the six displacement records behind Figure~\ref{fig:displacement}, the RDT-1B base attribution runs behind the second displacement seed, the Month 5 1B reproduction records, and a validation record for the displacement identity.
+The RDT-170M main-pass values were computed from the now-decommissioned main-pass records and are not regenerable from the committed data.
+These are the completeness values in Table~\ref{tab:correctness}, the RDT-170M block of Table~\ref{tab:faithfulness}, and the standard C1 and C2 rows of Table~\ref{tab:sanity}.
+The three-seed RDT-1B rows of Table~\ref{tab:faithfulness} and the frozen-target and cascade rows of Table~\ref{tab:sanity} are computed from the committed records and regenerate exactly from them, with bootstrap intervals in the released interval tables.
+The released analysis notebooks preserve the Table~\ref{tab:correctness} values exactly and retain the other analyses over broader unfiltered row populations.
+A README maps each committed file to the run it represents.
+Attribution sidecar tensors are too large to distribute and are regenerable from the fixed-seed scripts.
+Hardware and library versions can shift episode lengths and success counts, as the Month 5 reproduction run shows, while the reproduced medians stay inside the episode bootstrap intervals.
+Code, records, interval tables, and the analysis notebooks are available at \url{https://github.com/itscool2b/ig-work-2026}.
+
+%% ================================================================
+\bibliographystyle{named}
+\bibliography{references}
+
+\end{document}

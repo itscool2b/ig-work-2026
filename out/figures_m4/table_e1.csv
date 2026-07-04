@@ -1,0 +1,5 @@
+metric,170M,1B
+vis_ins,0.856,0.940
+vis_del,0.317,0.288
+lang_ins,0.504,0.541
+lang_del,0.477,0.267

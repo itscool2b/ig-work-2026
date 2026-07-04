@@ -1,0 +1,44 @@
+__pycache__/
+*.pyc
+checkpoints/
+data/*
+!data/README.md
+!data/*.jsonl
+demos/
+.venv/
+*.egg-info/
+out/*
+!out/figures/
+!out/figures/*.png
+!out/figures_m4/
+!out/figures_m4/*.png
+!out/figures_m4/*.csv
+!out/figures_m5/
+!out/figures_m5/*.png
+!out/figures_m5/*.csv
+output/videos/
+paper/paper.log
+paper/paper.out
+paper/paper.blg
+paper/paper.aux
+paper/paper.bbl
+paper/paper.xdv
+paper/paper.txt
+paper_ijcai26.zip
+
+# OS noise
+.DS_Store
+
+
+# Local working-copy guards. These paths exist only in private working trees
+# and must never be swept into this repository by a bulk add.
+notes/
+report/
+archive/
+.claude/
+CLAUDE.md
+AUDIT_REPORT.md
+paper/AUDIT_REPORT.md
+paper/REVIEW_NOTES.md
+.precompaction_context.md
+.notes_data_worksheet.md
