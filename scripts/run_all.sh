@@ -23,10 +23,14 @@ if run_stage overlays;    then bash scripts/run_overlays.sh;     fi
 if run_stage report; then
   echo "=== notebook (local) ==="
   #Note: executing the notebook overwrites out/figures/fig_c_auc_curves.png,
-  #the preserved main-pass render (see README Reproducing).
-  if [[ -x .venv/bin/jupyter ]]; then
+  #the preserved main-pass render that cannot be regenerated (see README
+  #Reproducing), so it is opt-in via RUN_NOTEBOOK=1 and the default one-command
+  #run never clobbers it.
+  if [[ "${RUN_NOTEBOOK:-0}" == "1" && -x .venv/bin/jupyter ]]; then
     .venv/bin/jupyter nbconvert --to notebook --execute notebooks/metrics_report.ipynb \
       --output metrics_report_executed.ipynb
+  elif [[ "${RUN_NOTEBOOK:-0}" != "1" ]]; then
+    echo "skipping notebook execute: set RUN_NOTEBOOK=1 to run it (it overwrites the preserved fig_c_auc_curves.png)"
   else
     echo "skipping notebook execute: .venv/bin/jupyter not installed"
   fi

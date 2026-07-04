@@ -59,7 +59,7 @@ run_disp() {
 
 run_disp PickCube-v1  1b   data/m5_metrics_PickCube-v1_1b_seed42.jsonl  "$LIMIT_1B" --no-signal-filter
 run_disp PickCube-v1  170m data/metrics_PickCube-v1_170m_seed42.jsonl   "$LIMIT_170"
-run_disp StackCube-v1 1b   data/m5_metrics_StackCube-v1_1b_seed42.jsonl "$LIMIT_170" --no-signal-filter
+run_disp StackCube-v1 1b   data/m5_metrics_StackCube-v1_1b_seed42.jsonl "$LIMIT_1B"  --no-signal-filter
 run_disp StackCube-v1 170m data/metrics_StackCube-v1_170m_seed42.jsonl  "$LIMIT_170"
 
 echo "Displacement runs complete. Regenerate the figure and CSV with:"

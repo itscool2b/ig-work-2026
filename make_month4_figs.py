@@ -152,6 +152,7 @@ def fig_m128():
     # Month-3 record m=64 vision %<=3% (Table 1) + Month-4 m=128
     m64 = {"PegInsertionSide": 75.8, "PickCube": 68.6, "PickSingleYCB": 69.8, "StackCube": 59.9}
     m128 = {"PickCube": 80.5, "StackCube": 89.8}
+    seed_vals = {}  # task -> per-seed vision %<=3 values, averaged once below
     for f in glob.glob("data/metrics_*_m128.jsonl"):
         if any(x in f for x in ["faithfulness", "sanity", "baseline"]):
             continue
@@ -161,7 +162,9 @@ def fig_m128():
             continue
         t = rows[0]["task"].replace("-v1", "")
         v = pct_le([r["vision_err"] for r in rows])
-        m128[t] = (m128.get(t) + v) / 2 if t in m128 else v  # avg seeds
+        seed_vals.setdefault(t, []).append(v)
+    for t, vals in seed_vals.items():
+        m128[t] = sum(vals) / len(vals)  # unweighted mean over all seeds
     tasks = ["PickCube", "StackCube", "PegInsertionSide", "PickSingleYCB"]
     x = range(len(tasks)); w = 0.38
     fig, ax = plt.subplots(figsize=(7, 4))
