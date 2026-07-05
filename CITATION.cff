@@ -4,7 +4,7 @@ title: "The Readout, Not the Denoiser: Per-Step Integrated Gradients for Diffusi
 authors:
   - family-names: Bajpai
     given-names: Arjun
-repository-code: "https://github.com/itscool2b/ig-work-2026"
+repository-code: "https://github.com/itscool2b/the-readout-not-the-denoiser-repo"
 license: MIT
 version: 1.0.2
 date-released: "2026-07-05"
