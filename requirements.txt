@@ -29,8 +29,10 @@ h5py
 PyYAML
 
 # The Month 2 demo ig_llava.py additionally needs bitsandbytes for its 4-bit
-# quantization. accelerate (device_map) is also used by encode_task_lang.py
-# and ig_tinyllama.py and installs transitively via peft above.
+# quantization, which also pulls in accelerate. accelerate (device_map) is
+# likewise used by ig_llava.py, encode_task_lang.py, and ig_tinyllama.py and
+# installs transitively via peft above. bitsandbytes is CUDA-specific and sits
+# outside the analysis layer, so install it by hand to run the llava demo.
 
 # NOT pip-installable: the RDT authors' source repository must be cloned to
 # ~/rdt-repo (see README "Reproducing"). Model checkpoints download from

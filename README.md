@@ -61,4 +61,4 @@ See `CITATION.cff`, or use:
 
 ## License
 
-MIT. See `LICENSE`. The license covers the code and records in this repository. `image.jpg` is a third-party demo photograph retained for the Month 2 study record and is not relicensed by this repository.
+MIT. See `LICENSE`. The license covers the code and records in this repository. `image.jpg` is a third-party demo photograph retained for the Month 2 study record, and the Month 2 attribution figures `output/ig_resnet50.png`, `output/ig_vit.png`, and `output/ig_llava.png` each reproduce that same photograph. None of these four files are relicensed by this repository. See `NOTICE`.

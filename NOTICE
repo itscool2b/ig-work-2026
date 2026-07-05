@@ -2,8 +2,10 @@ The code and records in this repository are covered by the MIT license in
 LICENSE.
 
 Exception: image.jpg is a third-party demonstration photograph retained for
-the Month 2 study record. It is not covered by the MIT license and is not
-relicensed by this repository. The root README records the same exception.
+the Month 2 study record. The Month 2 attribution figures output/ig_resnet50.png,
+output/ig_vit.png, and output/ig_llava.png each reproduce that same photograph.
+None of these four files are covered by the MIT license or relicensed by this
+repository. The root README records the same exception.
 
 Exception: paper/ijcai26.sty and paper/named.bst are the IJCAI conference
 LaTeX template and bibliography style files, included only to build the paper.

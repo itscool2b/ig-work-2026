@@ -15,7 +15,10 @@ STAGE="${STAGE:-all}"
 
 run_stage() { [[ "$STAGE" == "all" || "$STAGE" == "$1" ]]; }
 
-if run_stage full_pass;   then bash scripts/run_full_pass.sh;    fi
+if run_stage full_pass; then
+  echo "note: run_full_pass appends episodes 15-49 to the committed data/*.jsonl records (they ship with the first 15). To avoid growing the released files, run into a fresh --out or an emptied data/ per the README Reproducing section."
+  bash scripts/run_full_pass.sh
+fi
 if run_stage faithfulness; then bash scripts/run_faithfulness.sh; fi
 if run_stage sanity;      then bash scripts/run_sanity.sh;       fi
 if run_stage overlays;    then bash scripts/run_overlays.sh;     fi

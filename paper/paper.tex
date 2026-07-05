@@ -91,7 +91,7 @@ Diffusion-based policies~\cite{chi2023diffusion} have emerged as a particularly 
 They generate action chunks through iterative denoising~\cite{ho2020ddpm} and produce smooth, multimodal action distributions that outperform regression-based alternatives on contact-rich tasks.
 
 Despite these advances, diffusion-policy VLAs remain opaque.
-When a robot fails to grasp an object or misreads an instruction, practitioners cannot tell whether the failure came from visual misattention, language mis-grounding, or proprioceptive misreading without inspecting model internals by hand.
+When a robot fails to grasp an object or misreads an instruction, practitioners cannot tell whether the failure came from visual misattention, language misgrounding, or proprioceptive misreading without inspecting model internals by hand.
 This limits deployment in safety-critical settings, hampers systematic debugging, and makes it harder for operators to decide when to intervene.
 
 Post-hoc attribution offers a principled path toward interpretability without modifying the policy.
@@ -165,7 +165,7 @@ This multimodal, multi-step architecture makes RDT a compelling but challenging 
 
 Prior work on explaining robotic policies has focused on reinforcement learning agents in discrete-action settings.
 Greydanus et al.~\shortcite{greydanus2018visualizing} applied perturbation-based saliency to Atari agents, and counterfactual methods~\cite{amitai2024explaining} contrast the outcomes of executed and alternative actions for policy explanation.
-In continuous control, VisualBackProp~\cite{bojarski2018visualbackprop} visualizes CNN saliency for end-to-end driving policies.
+In continuous control, VisualBackProp~\cite{bojarski2018visualbackprop} visualizes convolutional neural network (CNN) saliency for end-to-end driving policies.
 That setting is single-modality behavior cloning and offers no quantitative attribution guarantees.
 To our knowledge, no prior work provides per-step, completeness-checked, multimodal gradient attribution for diffusion policies in episodic control, together with quantitative attribution-quality metrics across complete manipulation episodes.
 
@@ -242,7 +242,7 @@ At each policy call we compute three independent attributions through modality-s
 \begin{itemize}
 \item \textbf{Vision.} Freeze language and state and interpolate the adapted image tokens from the baseline to the real observation.
 \item \textbf{Language.} Freeze vision and state and interpolate the adapted language tokens from a minimal two-token baseline encoded through T5-XXL to the real instruction embedding.
-\item \textbf{State.} Freeze vision and language and interpolate the 128-dimensional unified state vector (eight active dimensions for the Franka arm, namely seven joints plus the gripper) from zeros to its real value. The state-adaptor MLP sits inside the forward function to preserve per-joint structure.
+\item \textbf{State.} Freeze vision and language and interpolate the 128-dimensional unified state vector (eight active dimensions for the Franka arm, namely seven joints plus the gripper) from zeros to its real value. The state-adaptor multilayer perceptron (MLP) sits inside the forward function to preserve per-joint structure.
 \end{itemize}
 Algorithm~\ref{alg:perstep} summarizes the procedure.
 
@@ -274,7 +274,7 @@ The remaining five camera slots carry constant background images and are frozen 
 The language baseline is a minimal two-token sequence (the tokenizer's padding and end-of-sequence tokens, since T5 has no beginning-of-sequence token) encoded through T5-XXL rather than a zero vector.
 The encoder output is zero-padded to the stored embedding length, and the language forward passes attend over the task's real token span.
 The attended baseline is therefore the encoded token pair followed by zero vectors at the remaining attended positions.
-A zero vector is numerically safe through the GELU-based language adaptor but is semantically degenerate, and it roughly doubled the completeness error in preliminary single-step tests.
+A zero vector is numerically safe through the GELU-based language adaptor, where GELU is the Gaussian error linear unit, but is semantically degenerate, and it roughly doubled the completeness error in preliminary single-step tests.
 The state baseline is a zero vector in the normalized joint space, a numerically safe choice that keeps per-joint attributions readable.
 Section~\ref{sec:anchoring} quantifies sensitivity to the vision baseline choice.
 
@@ -343,11 +343,11 @@ A Month 5 reproduction run of the same checkpoint and seeds with real T5-XXL emb
 Its vision faithfulness medians fall inside the episode bootstrap intervals of the committed run (insertion 0.919 against 0.926 and deletion 0.264 against 0.248).
 
 \paragraph{Tasks.}
-We evaluate on four ManiSkill3~\cite{tao2024maniskill3} manipulation tasks with a simulated Franka Panda 7-DoF arm.
+We evaluate on four ManiSkill3~\cite{tao2024maniskill3} manipulation tasks with a simulated Franka Panda seven-degree-of-freedom (7-DoF) arm.
 PickCube-v1 grasps a cube and lifts it to a target.
 StackCube-v1 stacks a red cube on a green cube.
 PegInsertionSide-v1 inserts a peg into a hole from the side.
-PickSingleYCB-v1 grasps a YCB object.
+PickSingleYCB-v1 grasps a Yale-CMU-Berkeley (YCB) object.
 Each task is conditioned on a natural-language instruction encoded offline through T5-XXL.
 Tables abbreviate PegInsertionSide-v1 and PickSingleYCB-v1 as PegInsertion and PickYCB.
 We record five protocol deviations up front.
@@ -562,7 +562,7 @@ Language rankings survive even full-backbone randomization at $\rho = 0.910$, so
 
 An annotation pipeline tags 16 representative steps (2 successes from the 1B run and 14 failures from 170M across all four tasks) into five categories.
 The categories are assigned algorithmically from the per-modality completeness signature of each row.
-They are vision mis-focus, language mis-grounding, state misreading, delayed credit, and success-well-grounded.
+They are vision misfocus, language misgrounding, state misreading, delayed credit, and success-well-grounded.
 The selection is stratified, with representative rows per category and task, so it catalogs the failure modes the signatures can distinguish rather than measuring their prevalence.
 The overlay grid and the annotation set both deviate from the original protocol's two-successes-per-task composition, which the 1-in-400 success rate makes unsatisfiable.
 In total the overlay pipeline emitted 3{,}881 PNG artifacts (per-step overlays, token bars, episode summaries, and combined three-panel figures) across the full pass.
@@ -832,7 +832,7 @@ The shuffled embeddings cover the same vocabulary, and the check still passes on
 The StackCube C2 language reading (0.240) is borderline for the stated repeated-token reason.
 The baseline-sensitivity study covers the vision modality only.
 The follow-up language attributions carry the baseline and embedding deviations recorded in Section~\ref{sec:setup}.
-The failure taxonomy is assigned algorithmically from completeness signatures rather than by human annotation, and it merges spurious-background cases into vision mis-focus and ambiguous-instruction cases into language mis-grounding.
+The failure taxonomy is assigned algorithmically from completeness signatures rather than by human annotation, and it merges spurious-background cases into vision misfocus and ambiguous-instruction cases into language misgrounding.
 All findings come from a single model family (RDT) in a single simulator (ManiSkill3), and the 1B faithfulness evaluation covers a single task.
 All results are in simulation.
 
@@ -878,7 +878,7 @@ Episode seeds are fixed at 42 and 142, with 242 added for the third RDT-1B evalu
 Single-command scripts regenerate the full pass, faithfulness, sanity, target-ablation, and displacement stages from the fixed seeds, with the exact commands as executed on the original GPUs, except for the later strengthening runs.
 The seed 142 and 242 RDT-1B faithfulness runs, the matched-population $\log\pi$ ablation runs, and the seed 142 displacement runs used the same entry points and flags at the seeds and scopes recorded in the released data README.
 The RDT-1B stages additionally require the RDT authors' ManiSkill fine-tuned checkpoint from the robotics-diffusion-transformer maniskill-model repository on Hugging Face.
-Without it the loader falls back to the Hugging Face base weights, applying this project's local PickCube LoRA fine-tune only when its checkpoint exists, and neither fallback reproduces the published 1B numbers.
+Without it the loader falls back to the Hugging Face base weights, applying this project's local PickCube low-rank adaptation (LoRA) fine-tune only when its checkpoint exists, and neither fallback reproduces the published 1B numbers.
 The committed records are not a byte-level reproduction of every table.
 Six artifact families were produced on cloud GPUs that have since been decommissioned.
 They are the main evaluation pass and its faithfulness records, the original $m{=}128$ PickCube and StackCube subset, the standard sanity runs, the initial RDT-1B scale-check run, the per-step attribution sidecars, and the overlay images.
